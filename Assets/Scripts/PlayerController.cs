@@ -1,11 +1,13 @@
 using System.Runtime.CompilerServices;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using System.Collections;
 
 /// <summary>
-/// プレイヤーの移動、ジャンプ、慣性、カメラの処理
+/// プレイヤーの移動、ジャンプ、慣性、カメラの処理とアイテムの取得を管理
 /// - カメラ相対移動とワールド空間絶対移動の切り替え
 /// - キャラクターが移動方向に向くように回転
+/// - アイテムを取得したときの処理
 /// </summary>
 public class PlayerController : MonoBehaviour
 {
@@ -16,11 +18,14 @@ public class PlayerController : MonoBehaviour
     private Vector2 moveInput;
 
     public Transform mainCamera;
-    public float turnSmoothTime = 0.3f; // キャラクターが振り向くまでの時間
+    public float turnSmoothTime = 1.0f; // キャラクターが振り向くまでの時間
     private float turnSmoothVelocity; 
 
     [SerializeField] private float gravity = -9.8f;
     [SerializeField] private float jumpHeight = 2f;
+
+    [SerializeField]public WeaponData[] weapons = new WeaponData[3];
+    public int currentWeaponIndex; // 現在装備している武器
     private Vector3 velocity;
 
     public enum MoveMode { 
@@ -127,6 +132,124 @@ public class PlayerController : MonoBehaviour
         #endregion
 
         controller.Move(velocity * Time.deltaTime);
+    }
+
+    public void GetItem(ItemBase itemBase)
+    {
+        if (itemBase is WeaponData weapon)
+        {
+            Debug.Log("武器を取得: " + weapon.name);
+            // 武器の取得処理（例：インベントリに追加）
+            // 空いているスロット（nullの場所）を探す
+            int emptySlotIndex = -1;
+            for (int i = 0; i < weapons.Length; i++)
+            {
+                if (weapons[i] == null)
+                {
+                    emptySlotIndex = i;
+                    break;
+                }
+            }
+
+            if (emptySlotIndex != -1)
+            {
+                // 空き枠がある場合：そこに武器を入れる
+                weapons[emptySlotIndex] = weapon;
+                Debug.Log($"スロット {emptySlotIndex + 1} に {weapon.name} を収納した！");
+
+                // もし初めて武器を拾った（今まで丸腰だった）なら、自動でそれを装備する
+                if (CurrentWeapon == null || emptySlotIndex == 0) 
+                {
+                    EquipWeapon(emptySlotIndex);
+                }
+            }
+            else
+            {
+                // カバンがいっぱいの場合：今の武器と入れ替える
+                Debug.Log($"カバンが満杯！ {CurrentWeapon.name} を捨てて {weapon.name} を装備した！");
+                
+                // TODO: ここで「古い武器(CurrentWeapon)のPrefabを目の前にドロップする処理」を入れる
+                
+                // 現在のスロットを新しい武器で上書きする
+                weapons[currentWeaponIndex] = weapon;
+                EquipWeapon(currentWeaponIndex);
+            }
+        }
+        else if (itemBase is ConsumableItemData consumable)
+        {
+            Debug.Log("消費アイテムを取得: " + consumable.name);
+            StartCoroutine(ApplyBoost(consumable));
+        }
+    }
+
+    private IEnumerator ApplyBoost(ConsumableItemData consumable)
+    {
+        float originalSpeed = moveSpeed;
+        float originalJumpHeight = jumpHeight;
+        float originalTurnSpeed = turnSmoothTime;
+
+        // ブーストを適用
+        moveSpeed += consumable.speedBoost;
+        jumpHeight += consumable.jumpBoost;
+        turnSmoothTime -= consumable.turnSpeedBoost;
+
+        // ブーストの効果が切れるまで待機
+        yield return new WaitForSeconds(consumable.duration);
+
+        // 元の値に戻す
+        moveSpeed = originalSpeed;
+        jumpHeight = originalJumpHeight;
+        turnSmoothTime = originalTurnSpeed;
+    }
+
+    public WeaponData CurrentWeapon
+    {
+        get { return weapons[currentWeaponIndex]; }
+    }
+
+    // Rボタン（Right Shoulder）を押した時：次の武器へ
+    void OnNextWeapon(InputValue value)
+    {
+        if (value.isPressed)
+        {
+            SwitchWeapon(1);
+        }
+    }
+
+    // Lボタン（Left Shoulder）を押した時：前の武器へ
+    void OnPreviousWeapon(InputValue value)
+    {
+        if (value.isPressed)
+        {
+            SwitchWeapon(-1);
+        }
+    }
+
+    // 武器切り替えの共通ロジック（direction は 1 または -1 が入る）
+    private void SwitchWeapon(int direction)
+    {
+        // 3つのスロットを順番に探す
+        for (int i = 1; i <= weapons.Length; i++)
+        {
+            int step = i * direction;
+            int nextIndex = (currentWeaponIndex + step + weapons.Length) % weapons.Length;
+
+            // そのスロットに武器が入っていれば持ち替えて終了
+            if (weapons[nextIndex] != null)
+            {
+                EquipWeapon(nextIndex);
+                break;
+            }
+        }
+    }
+
+    private void EquipWeapon(int index)
+    {
+        currentWeaponIndex = index;
+        Debug.Log($"スロット {index + 1} の {CurrentWeapon.name} に持ち替えた！");
+        
+        // TODO: 手に持っている3Dモデルを切り替える処理
+        // TODO: UI（アイコンや残弾数）を更新する処理
     }
 }    
 

@@ -40,6 +40,7 @@ public class PlayerController : MonoBehaviour
         {
             mainCamera = Camera.main.transform;
         }
+        PlayerManager.Instance.AddPlayer(this);
     }
 
     void OnJump(InputValue value)

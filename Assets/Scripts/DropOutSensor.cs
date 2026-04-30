@@ -3,7 +3,6 @@ using UnityEngine;
 
 public class DropOutSensor : MonoBehaviour
 {
-    [SerializeField] private PlayerManager playerManager;
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
     {
@@ -21,7 +20,7 @@ public class DropOutSensor : MonoBehaviour
         PlayerController player = other.GetComponent<PlayerController>();
         if (player != null)
         {
-            playerManager.DropOut();
+            PlayerManager.Instance.DropOut(player);
         }
     }
 }

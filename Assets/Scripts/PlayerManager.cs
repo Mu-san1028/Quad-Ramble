@@ -7,7 +7,21 @@ using UnityEngine;
 /// </summary>
 public class PlayerManager : MonoBehaviour
 {
+    public static PlayerManager Instance { get; private set; }
+    public List<PlayerController> players = new List<PlayerController>();
     // Start is called once before the first execution of Update after the MonoBehaviour is created
+    void Awake()
+    {
+        if (Instance == null)
+        {
+            Instance = this;
+            DontDestroyOnLoad(gameObject);
+        }
+        else
+        {
+            Destroy(gameObject);
+        }
+    }
     void Start()
     {
         
@@ -19,8 +33,13 @@ public class PlayerManager : MonoBehaviour
         
     }
 
-    public void DropOut()
+    public void DropOut(PlayerController player)
     {
-        Debug.Log("Player has dropped out of the game.");
+        players.Remove(player);
+    }
+
+    public void AddPlayer(PlayerController player)
+    {
+        players.Add(player);
     }
 }

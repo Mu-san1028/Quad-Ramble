@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -39,6 +40,7 @@ public class PlayerController : MonoBehaviour
         {
             mainCamera = Camera.main.transform;
         }
+        PlayerManager.Instance.AddPlayer(this);
     }
 
     void OnJump(InputValue value)

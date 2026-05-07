@@ -180,7 +180,7 @@ public class PlayerController : MonoBehaviour
             Debug.Log("消費アイテムを取得: " + consumable.name);
             StartCoroutine(ApplyBoost(consumable));
         }
-        PlayerManager.Instance.SavePlayerWeapons(this);
+        
     }
 
     private IEnumerator ApplyBoost(ConsumableItemData consumable)
@@ -248,7 +248,7 @@ public class PlayerController : MonoBehaviour
     {
         currentWeaponIndex = index;
         Debug.Log($"スロット {index + 1} の {CurrentWeapon.name} に持ち替えた！");
-        PlayerManager.Instance.SavePlayerWeapons(this);
+        
         
         // TODO: 手に持っている3Dモデルを切り替える処理
         // TODO: UI（アイコンや残弾数）を更新する処理

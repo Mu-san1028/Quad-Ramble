@@ -28,6 +28,7 @@ public class PlayerController : MonoBehaviour
     private Vector3 velocity;
 
     private PlayerItem playerItem;
+
     [Header("カメラの透明化設定")]
     public Camera mainUnityCamera;      // 実際のカメラ機能
     public LayerMask defaultCameraMask; // 普段の視力（全部見える）

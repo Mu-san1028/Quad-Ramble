@@ -7,13 +7,13 @@ using UnityEngine;
 [RequireComponent(typeof(PlayerController))]
 public class PlayerItem : MonoBehaviour
 {
-    [SerializeField] private WeaponData[] weapons = new WeaponData[3];
+    [SerializeField] public WeaponData[] Weapons { get; private set; } = new WeaponData[3];
     private int currentWeaponIndex; // 現在装備している武器
     private PlayerController playerController;
 
     public WeaponData CurrentWeapon
     {
-        get { return weapons[currentWeaponIndex]; }
+        get { return this.Weapons[this.currentWeaponIndex]; }
     }
 
     private void Start()
@@ -26,12 +26,11 @@ public class PlayerItem : MonoBehaviour
         if (itemBase is WeaponData weapon)
         {
             Debug.Log("武器を取得: " + weapon.name);
-            // 武器の取得処理（例：インベントリに追加）
             // 空いているスロット（nullの場所）を探す
             int emptySlotIndex = -1;
-            for (int i = 0; i < weapons.Length; i++)
+            for (int i = 0; i < this.Weapons.Length; i++)
             {
-                if (weapons[i] == null)
+                if (this.Weapons[i] == null)
                 {
                     emptySlotIndex = i;
                     break;
@@ -41,10 +40,10 @@ public class PlayerItem : MonoBehaviour
             if (emptySlotIndex != -1)
             {
                 // 空き枠がある場合：そこに武器を入れる
-                weapons[emptySlotIndex] = weapon;
+                this.Weapons[emptySlotIndex] = weapon;
                 Debug.Log($"スロット {emptySlotIndex + 1} に {weapon.name} を収納した！");
 
-                // もし初めて武器を拾った（今まで丸腰だった）なら、自動でそれを装備する
+                // もし初めて武器を拾ったなら、自動でそれを装備する
                 if (CurrentWeapon == null || emptySlotIndex == 0) 
                 {
                     EquipWeapon(emptySlotIndex);
@@ -58,7 +57,7 @@ public class PlayerItem : MonoBehaviour
                 // TODO: ここで「古い武器(CurrentWeapon)のPrefabを目の前にドロップする処理」を入れる
                 
                 // 現在のスロットを新しい武器で上書きする
-                weapons[currentWeaponIndex] = weapon;
+                this.Weapons[currentWeaponIndex] = weapon;
                 EquipWeapon(currentWeaponIndex);
             }
         }
@@ -73,13 +72,13 @@ public class PlayerItem : MonoBehaviour
     public void SwitchWeapon(int direction)
     {
         // 3つのスロットを順番に探す
-        for (int i = 1; i <= weapons.Length; i++)
+        for (int i = 1; i <= this.Weapons.Length; i++)
         {
             int step = i * direction;
-            int nextIndex = (currentWeaponIndex + step + weapons.Length) % weapons.Length;
+            int nextIndex = (currentWeaponIndex + step + this.Weapons.Length) % this.Weapons.Length;
 
             // そのスロットに武器が入っていれば持ち替えて終了
-            if (weapons[nextIndex] != null)
+            if (this.Weapons[nextIndex] != null)
             {
                 EquipWeapon(nextIndex);
                 break;

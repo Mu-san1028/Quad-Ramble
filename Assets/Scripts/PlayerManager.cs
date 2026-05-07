@@ -49,7 +49,7 @@ public class PlayerManager : MonoBehaviour
         List<WeaponData> allWeapons = new List<WeaponData>();
         foreach (var player in players)
         {
-            allWeapons.AddRange(player.weapons);
+            allWeapons.AddRange(player.GetComponent<PlayerItem>().Weapons);
         }
         return allWeapons;
     }

@@ -24,7 +24,7 @@ public class Connection
 
 public class ConnectionContainer : NetworkBehaviour
 {
-    public ConnectionContainer Instance { get; private set; }
+    public static ConnectionContainer Instance { get; private set; }
     private readonly List<Connection> connections = new();
 
     private void Awake()

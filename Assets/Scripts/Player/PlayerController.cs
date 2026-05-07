@@ -14,9 +14,11 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private float acceleration = 20f; // 加速力
     [SerializeField] private float deceleration = 20f; // ブレーキ力
     private CharacterController controller;
+    private PlayerInput playerInput;
     private Vector2 moveInput;
 
     [SerializeField] private Transform mainCamera;
+    public Unity.Cinemachine.CinemachineCamera aimCamera;
     [SerializeField] private float turnSmoothTime = 1.0f; // キャラクターが振り向くまでの時間
     [SerializeField] private float turnSmoothVelocity; 
 
@@ -26,6 +28,12 @@ public class PlayerController : MonoBehaviour
     private Vector3 velocity;
 
     private PlayerItem playerItem;
+    [Header("カメラの透明化設定")]
+    public Camera mainUnityCamera;      // 実際のカメラ機能
+    public LayerMask defaultCameraMask; // 普段の視力（全部見える）
+    public LayerMask aimCameraMask;     // エイム時の視力（プレイヤーだけ見えない）
+
+    private bool isAiming = false;
 
     public enum MoveMode { 
         CameraRelative, // カメラの向きに合わせて移動するモード（TPSやFPS用）
@@ -39,6 +47,7 @@ public class PlayerController : MonoBehaviour
     {
         this.controller = GetComponent<CharacterController>();
         this.playerItem = GetComponent<PlayerItem>();
+        playerInput = GetComponent<PlayerInput>();
 
         // メインカメラが設定されていなければ、自動でシーン内のMain Cameraを探す
         if (mainCamera == null)
@@ -75,6 +84,22 @@ public class PlayerController : MonoBehaviour
         moveInput = value.Get<Vector2>();
     }
 
+    void OnAim(InputValue value)
+    {
+        if (value.isPressed)
+        {
+            aimCamera.Priority = 20;
+            mainUnityCamera.cullingMask = aimCameraMask;
+            isAiming = true;
+        }
+        else
+        {
+            aimCamera.Priority = 0;
+            mainUnityCamera.cullingMask = defaultCameraMask;
+            isAiming = false;
+        }
+    }
+
     void Update()
     {
         #region カメラ相対移動の計算
@@ -102,9 +127,9 @@ public class PlayerController : MonoBehaviour
         #endregion
 
         #region キャラを振り向かせる
-        if (moveDirection.magnitude > 0.01f)
+        if (moveDirection.magnitude > 0.01f && !isAiming)
         {
-            // Atan2関数を使って、X軸とZ軸の値から「向くべき角度」を計算
+            // Atan2関数を使って、X軸とZ軸の値から向くべき角度を計算
             float targetAngle = Mathf.Atan2(moveDirection.x, moveDirection.z) * Mathf.Rad2Deg;
             
             // 現在の角度から目標の角度へ、turnSmoothTime秒かけて滑らかに回転させる

@@ -1,14 +1,13 @@
-using System.Runtime.CompilerServices;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using System.Collections;
 
 /// <summary>
-/// プレイヤーの移動、ジャンプ、慣性、カメラの処理とアイテムの取得を管理
+/// プレイヤーの移動、ジャンプ、慣性、カメラの処理を管理
 /// - カメラ相対移動とワールド空間絶対移動の切り替え
 /// - キャラクターが移動方向に向くように回転
-/// - アイテムを取得したときの処理
 /// </summary>
+[RequireComponent(typeof(CharacterController), typeof(PlayerItem))]
 public class PlayerController : MonoBehaviour
 {
     [SerializeField] private float moveSpeed = 5f; // 基本の移動速度
@@ -18,17 +17,17 @@ public class PlayerController : MonoBehaviour
     private PlayerInput playerInput;
     private Vector2 moveInput;
 
-    public Transform mainCamera;
+    [SerializeField] private Transform mainCamera;
     public Unity.Cinemachine.CinemachineCamera aimCamera;
-    public float turnSmoothTime = 1.0f; // キャラクターが振り向くまでの時間
-    private float turnSmoothVelocity; 
+    [SerializeField] private float turnSmoothTime = 1.0f; // キャラクターが振り向くまでの時間
+    [SerializeField] private float turnSmoothVelocity; 
 
     [SerializeField] private float gravity = -9.8f;
     [SerializeField] private float jumpHeight = 2f;
 
-    [SerializeField]public WeaponData[] weapons = new WeaponData[3];
-    public int currentWeaponIndex; // 現在装備している武器
     private Vector3 velocity;
+
+    private PlayerItem playerItem;
 
     [Header("カメラの透明化設定")]
     public Camera mainUnityCamera;      // 実際のカメラ機能
@@ -43,11 +42,12 @@ public class PlayerController : MonoBehaviour
     }
 
     // GMなどの別のスクリプトから、player.currentMoveMode = MoveMode.WorldAbsolute; のようにして、移動モードを切り替えることができる。
-    public MoveMode currentMoveMode = MoveMode.CameraRelative;
+    public MoveMode CurrentMoveMode { get; set; } = MoveMode.CameraRelative;
 
     void Start()
     {
-        controller = GetComponent<CharacterController>();
+        this.controller = GetComponent<CharacterController>();
+        this.playerItem = GetComponent<PlayerItem>();
         playerInput = GetComponent<PlayerInput>();
 
         // メインカメラが設定されていなければ、自動でシーン内のMain Cameraを探す
@@ -106,7 +106,7 @@ public class PlayerController : MonoBehaviour
         #region カメラ相対移動の計算
         Vector3 forwardDirection, rightDirection;
 
-        if (currentMoveMode == MoveMode.CameraRelative)
+        if (this.CurrentMoveMode == MoveMode.CameraRelative)
         {
             // カメラの向きに合わせるモード（TPSやFPS用）
             forwardDirection = mainCamera.forward;
@@ -160,55 +160,12 @@ public class PlayerController : MonoBehaviour
         controller.Move(velocity * Time.deltaTime);
     }
 
-    public void GetItem(ItemBase itemBase)
+    public void ApplyBoost(ConsumableItemData consumable)
     {
-        if (itemBase is WeaponData weapon)
-        {
-            Debug.Log("武器を取得: " + weapon.name);
-            // 空いているスロット（nullの場所）を探す
-            int emptySlotIndex = -1;
-            for (int i = 0; i < weapons.Length; i++)
-            {
-                if (weapons[i] == null)
-                {
-                    emptySlotIndex = i;
-                    break;
-                }
-            }
-
-            if (emptySlotIndex != -1)
-            {
-                // 空き枠がある場合：そこに武器を入れる
-                weapons[emptySlotIndex] = weapon;
-                Debug.Log($"スロット {emptySlotIndex + 1} に {weapon.name} を収納した！");
-
-                // もし初めて武器を拾ったなら、自動でそれを装備する
-                if (CurrentWeapon == null || emptySlotIndex == 0) 
-                {
-                    EquipWeapon(emptySlotIndex);
-                }
-            }
-            else
-            {
-                // カバンがいっぱいの場合：今の武器と入れ替える
-                Debug.Log($"カバンが満杯！ {CurrentWeapon.name} を捨てて {weapon.name} を装備した！");
-                
-                // TODO: ここで「古い武器(CurrentWeapon)のPrefabを目の前にドロップする処理」を入れる
-                
-                // 現在のスロットを新しい武器で上書きする
-                weapons[currentWeaponIndex] = weapon;
-                EquipWeapon(currentWeaponIndex);
-            }
-        }
-        else if (itemBase is ConsumableItemData consumable)
-        {
-            Debug.Log("消費アイテムを取得: " + consumable.name);
-            StartCoroutine(ApplyBoost(consumable));
-        }
-        
+        StartCoroutine(this.ApplyBoostCoroutine(consumable));
     }
 
-    private IEnumerator ApplyBoost(ConsumableItemData consumable)
+    private IEnumerator ApplyBoostCoroutine(ConsumableItemData consumable)
     {
         float originalSpeed = moveSpeed;
         float originalJumpHeight = jumpHeight;
@@ -228,17 +185,12 @@ public class PlayerController : MonoBehaviour
         turnSmoothTime = originalTurnSpeed;
     }
 
-    public WeaponData CurrentWeapon
-    {
-        get { return weapons[currentWeaponIndex]; }
-    }
-
     // Rボタン（Right Shoulder）を押した時：次の武器へ
     void OnNextWeapon(InputValue value)
     {
         if (value.isPressed)
         {
-            SwitchWeapon(1);
+            this.playerItem.SwitchWeapon(1);
         }
     }
 
@@ -247,36 +199,7 @@ public class PlayerController : MonoBehaviour
     {
         if (value.isPressed)
         {
-            SwitchWeapon(-1);
+            this.playerItem.SwitchWeapon(-1);
         }
-    }
-
-    // 武器切り替えの共通ロジック（direction は 1 または -1 が入る）
-    private void SwitchWeapon(int direction)
-    {
-        // 3つのスロットを順番に探す
-        for (int i = 1; i <= weapons.Length; i++)
-        {
-            int step = i * direction;
-            int nextIndex = (currentWeaponIndex + step + weapons.Length) % weapons.Length;
-
-            // そのスロットに武器が入っていれば持ち替えて終了
-            if (weapons[nextIndex] != null)
-            {
-                EquipWeapon(nextIndex);
-                break;
-            }
-        }
-    }
-
-    private void EquipWeapon(int index)
-    {
-        currentWeaponIndex = index;
-        Debug.Log($"スロット {index + 1} の {CurrentWeapon.name} に持ち替えた！");
-        
-        
-        // TODO: 手に持っている3Dモデルを切り替える処理
-        // TODO: UI（アイコンや残弾数）を更新する処理
     }
 }    
-

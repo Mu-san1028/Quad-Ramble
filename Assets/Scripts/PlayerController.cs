@@ -15,9 +15,11 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private float acceleration = 20f; // 加速力
     [SerializeField] private float deceleration = 20f; // ブレーキ力
     private CharacterController controller;
+    private PlayerInput playerInput;
     private Vector2 moveInput;
 
     public Transform mainCamera;
+    public Unity.Cinemachine.CinemachineCamera aimCamera;
     public float turnSmoothTime = 1.0f; // キャラクターが振り向くまでの時間
     private float turnSmoothVelocity; 
 
@@ -27,6 +29,13 @@ public class PlayerController : MonoBehaviour
     [SerializeField]public WeaponData[] weapons = new WeaponData[3];
     public int currentWeaponIndex; // 現在装備している武器
     private Vector3 velocity;
+
+    [Header("カメラの透明化設定")]
+    public Camera mainUnityCamera;      // 実際のカメラ機能
+    public LayerMask defaultCameraMask; // 普段の視力（全部見える）
+    public LayerMask aimCameraMask;     // エイム時の視力（プレイヤーだけ見えない）
+
+    private bool isAiming = false;
 
     public enum MoveMode { 
         CameraRelative, // カメラの向きに合わせて移動するモード（TPSやFPS用）
@@ -39,6 +48,7 @@ public class PlayerController : MonoBehaviour
     void Start()
     {
         controller = GetComponent<CharacterController>();
+        playerInput = GetComponent<PlayerInput>();
 
         // メインカメラが設定されていなければ、自動でシーン内のMain Cameraを探す
         if (mainCamera == null)
@@ -75,6 +85,22 @@ public class PlayerController : MonoBehaviour
         moveInput = value.Get<Vector2>();
     }
 
+    void OnAim(InputValue value)
+    {
+        if (value.isPressed)
+        {
+            aimCamera.Priority = 20;
+            mainUnityCamera.cullingMask = aimCameraMask;
+            isAiming = true;
+        }
+        else
+        {
+            aimCamera.Priority = 0;
+            mainUnityCamera.cullingMask = defaultCameraMask;
+            isAiming = false;
+        }
+    }
+
     void Update()
     {
         #region カメラ相対移動の計算
@@ -102,9 +128,9 @@ public class PlayerController : MonoBehaviour
         #endregion
 
         #region キャラを振り向かせる
-        if (moveDirection.magnitude > 0.01f)
+        if (moveDirection.magnitude > 0.01f && !isAiming)
         {
-            // Atan2関数を使って、X軸とZ軸の値から「向くべき角度」を計算
+            // Atan2関数を使って、X軸とZ軸の値から向くべき角度を計算
             float targetAngle = Mathf.Atan2(moveDirection.x, moveDirection.z) * Mathf.Rad2Deg;
             
             // 現在の角度から目標の角度へ、turnSmoothTime秒かけて滑らかに回転させる
@@ -139,7 +165,6 @@ public class PlayerController : MonoBehaviour
         if (itemBase is WeaponData weapon)
         {
             Debug.Log("武器を取得: " + weapon.name);
-            // 武器の取得処理（例：インベントリに追加）
             // 空いているスロット（nullの場所）を探す
             int emptySlotIndex = -1;
             for (int i = 0; i < weapons.Length; i++)
@@ -157,7 +182,7 @@ public class PlayerController : MonoBehaviour
                 weapons[emptySlotIndex] = weapon;
                 Debug.Log($"スロット {emptySlotIndex + 1} に {weapon.name} を収納した！");
 
-                // もし初めて武器を拾った（今まで丸腰だった）なら、自動でそれを装備する
+                // もし初めて武器を拾ったなら、自動でそれを装備する
                 if (CurrentWeapon == null || emptySlotIndex == 0) 
                 {
                     EquipWeapon(emptySlotIndex);

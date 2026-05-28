@@ -7,11 +7,11 @@ using UnityEngine;
 [RequireComponent(typeof(PlayerController))]
 public class PlayerItem : MonoBehaviour
 {
-    [SerializeField] public WeaponData[] Weapons { get; private set; } = new WeaponData[3];
+    [field: SerializeField] public ItemSlot[] Weapons { get; private set; } = new ItemSlot[3];
     private int currentWeaponIndex; // 現在装備している武器
     private PlayerController playerController;
 
-    public WeaponData CurrentWeapon
+    public ItemSlot CurrentWeapon
     {
         get { return this.Weapons[this.currentWeaponIndex]; }
     }
@@ -26,11 +26,16 @@ public class PlayerItem : MonoBehaviour
         if (itemBase is WeaponData weapon)
         {
             Debug.Log("武器を取得: " + weapon.name);
-            // 空いているスロット（nullの場所）を探す
+
+            // 万が一、Unityの都合で配列自体が消えていたら作り直す
+            if (this.Weapons == null) this.Weapons = new ItemSlot[3];
+
+            // 空いているスロットを探す
             int emptySlotIndex = -1;
             for (int i = 0; i < this.Weapons.Length; i++)
             {
-                if (this.Weapons[i] == null)
+                // 「箱自体がない(null)」または「箱はあるけど中身(設計図)が空っぽ」なら空き枠にする
+                if (this.Weapons[i] == null || this.Weapons[i].itemData == null)
                 {
                     emptySlotIndex = i;
                     break;
@@ -39,12 +44,13 @@ public class PlayerItem : MonoBehaviour
 
             if (emptySlotIndex != -1)
             {
-                // 空き枠がある場合：そこに武器を入れる
-                this.Weapons[emptySlotIndex] = weapon;
+                // 空き枠に新しい箱を作って武器を入れる
+                this.Weapons[emptySlotIndex] = new ItemSlot(weapon, weapon.bulletStock); 
                 Debug.Log($"スロット {emptySlotIndex + 1} に {weapon.name} を収納した！");
 
-                // もし初めて武器を拾ったなら、自動でそれを装備する
-                if (CurrentWeapon == null || emptySlotIndex == 0) 
+                // はじめて武器を拾った時は自動装備
+                // （CurrentWeapon 自体が無い、または中身が無い場合）
+                if (CurrentWeapon == null || CurrentWeapon.itemData == null || emptySlotIndex == 0) 
                 {
                     EquipWeapon(emptySlotIndex);
                 }
@@ -52,12 +58,9 @@ public class PlayerItem : MonoBehaviour
             else
             {
                 // カバンがいっぱいの場合：今の武器と入れ替える
-                Debug.Log($"カバンが満杯！ {CurrentWeapon.name} を捨てて {weapon.name} を装備した！");
+                Debug.Log($"カバンが満杯！ {CurrentWeapon.itemData.itemName} を捨てて {weapon.name} を装備した！");
                 
-                // TODO: ここで「古い武器(CurrentWeapon)のPrefabを目の前にドロップする処理」を入れる
-                
-                // 現在のスロットを新しい武器で上書きする
-                this.Weapons[currentWeaponIndex] = weapon;
+                this.Weapons[currentWeaponIndex] = new ItemSlot(weapon, weapon.bulletStock);
                 EquipWeapon(currentWeaponIndex);
             }
         }
@@ -77,8 +80,8 @@ public class PlayerItem : MonoBehaviour
             int step = i * direction;
             int nextIndex = (currentWeaponIndex + step + this.Weapons.Length) % this.Weapons.Length;
 
-            // そのスロットに武器が入っていれば持ち替えて終了
-            if (this.Weapons[nextIndex] != null)
+            // 箱が存在し、かつ、中身(itemData)も空っぽじゃない時だけ持ち替える
+            if (this.Weapons[nextIndex] != null && this.Weapons[nextIndex].itemData != null)
             {
                 EquipWeapon(nextIndex);
                 break;
@@ -89,9 +92,27 @@ public class PlayerItem : MonoBehaviour
     private void EquipWeapon(int index)
     {
         currentWeaponIndex = index;
-        Debug.Log($"スロット {index + 1} の {CurrentWeapon.name} に持ち替えた！");
+        Debug.Log($"スロット {index + 1} の {CurrentWeapon.itemData.itemName} に持ち替えた！");
         
         // TODO: 手に持っている3Dモデルを切り替える処理
         // TODO: UI（アイコンや残弾数）を更新する処理
+    }
+
+    public bool TryConsumeAmmo()
+    {
+        // スロットが空、またはスロットの中の設計図が空なら撃てない
+        if (Weapons[currentWeaponIndex] == null || Weapons[currentWeaponIndex].itemData == null) return false;
+
+        if (Weapons[currentWeaponIndex].currentAmount > 0)
+        {
+            Weapons[currentWeaponIndex].currentAmount--;
+            Debug.Log($"残弾数: {Weapons[currentWeaponIndex].currentAmount}");
+            return true;
+        }
+        else
+        {
+            Debug.Log("弾切れです");
+            return false;
+        }
     }
 }

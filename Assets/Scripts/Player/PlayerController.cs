@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 using System.Collections;
+using Unity.Netcode;
 
 /// <summary>
 /// プレイヤーの移動、ジャンプ、慣性、カメラの処理を管理
@@ -8,7 +9,7 @@ using System.Collections;
 /// - キャラクターが移動方向に向くように回転
 /// </summary>
 [RequireComponent(typeof(CharacterController), typeof(PlayerItem))]
-public class PlayerController : MonoBehaviour
+public class PlayerController : NetworkBehaviour
 {
     [SerializeField] private float moveSpeed = 5f; // 基本の移動速度
     [SerializeField] private float acceleration = 20f; // 加速力
@@ -23,6 +24,7 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private float turnSmoothVelocity; 
 
     [SerializeField] private float gravity = -9.8f;
+    private Vector3 impact = Vector3.zero; // 外部から受けた衝撃を保存する
     [SerializeField] private float jumpHeight = 2f;
 
     private Vector3 velocity;
@@ -34,6 +36,10 @@ public class PlayerController : MonoBehaviour
     public LayerMask defaultCameraMask; // 普段の視力（全部見える）
     public LayerMask aimCameraMask;     // エイム時の視力（プレイヤーだけ見えない）
 
+    [Header("射撃・Raycast設定")]
+    public LayerMask shootableLayers; // 撃てる対象のレイヤー（Player自身を除外するため）
+    public float shootRange = 100f;   // 弾が届く距離
+
     private bool isAiming = false;
 
     public enum MoveMode { 
@@ -43,6 +49,24 @@ public class PlayerController : MonoBehaviour
 
     // GMなどの別のスクリプトから、player.currentMoveMode = MoveMode.WorldAbsolute; のようにして、移動モードを切り替えることができる。
     public MoveMode CurrentMoveMode { get; set; } = MoveMode.CameraRelative;
+
+    // ネットワーク上にこのキャラが生成された時に1回だけ呼ばれるメソッド
+    public override void OnNetworkSpawn()
+    {
+        // もし、このキャラが「自分の操作するキャラ」ではない（＝他人のクローン）場合
+        if (!IsOwner)
+        {
+            // 他人のクローンが、自分のコントローラーの入力を奪わないようにする
+            PlayerInput input = GetComponent<PlayerInput>();
+            if (input != null) input.enabled = false;
+
+            // 他人のクローンについている「Aim用カメラ」をオフにする（カメラ乗っ取り防止）
+            if (aimCamera != null) aimCamera.gameObject.SetActive(false);
+
+            // UI（クロスヘアなど）も他人のクローンからは出さないようにする
+            // if (aimUIGroup != null) aimUIGroup.SetActive(false);
+        }
+    }
 
     void Start()
     {
@@ -103,6 +127,8 @@ public class PlayerController : MonoBehaviour
 
     void Update()
     {
+        if (!IsOwner) return; // 自分の操作するキャラじゃなければ、以下の処理をしない
+
         #region カメラ相対移動の計算
         Vector3 forwardDirection, rightDirection;
 
@@ -157,6 +183,18 @@ public class PlayerController : MonoBehaviour
         velocity.y += gravity * Time.deltaTime;
         #endregion
 
+        #region ノックバックの計算
+        // 衝撃が少しでも残っている場合
+        if (impact.magnitude > 0.2f)
+        {
+            // 衝撃の方向へ強制的に移動させる
+            controller.Move(impact * Time.deltaTime);
+            
+            // 時間経過で衝撃を減衰させる（Lerpで滑らかにゼロに近づける。5fの部分で空気抵抗を調整）
+            impact = Vector3.Lerp(impact, Vector3.zero, 5f * Time.deltaTime);
+        }
+        #endregion
+
         controller.Move(velocity * Time.deltaTime);
     }
 
@@ -201,5 +239,92 @@ public class PlayerController : MonoBehaviour
         {
             this.playerItem.SwitchWeapon(-1);
         }
+    }
+
+    // R2ボタンが押された時
+    void OnFire(InputValue value)
+    {
+        if (!IsOwner) return;
+
+        if (value.isPressed)
+        {
+            if (!this.playerItem.TryConsumeAmmo())
+            {
+                Debug.Log("弾、または武器がありません！");
+                return;
+            }
+            var currentSlot = this.playerItem.CurrentWeapon;
+            PlayShootEffectLocal();
+
+            Ray ray = new Ray(mainUnityCamera.transform.position, mainUnityCamera.transform.forward);
+            
+            if (Physics.Raycast(ray, out RaycastHit hit, shootRange, shootableLayers))
+            {
+                // 当たった相手が「ネットワークオブジェクト（他プレイヤー）」か確認する
+                NetworkObject targetNetObj = hit.collider.GetComponent<NetworkObject>();
+                
+                if (targetNetObj != null)
+                {
+                    if (currentSlot != null && currentSlot.itemData is WeaponData weaponData)
+                    {
+                        // 取り出した設計図(weaponData)からPowerを読み取る
+                        float weaponPower = weaponData.Power;
+                        
+                        Vector3 knockbackForce = ray.direction * weaponPower;
+                        knockbackForce.y += (weaponPower * 0.3f); 
+                        SubmitShootServerRpc(hit.point, targetNetObj.NetworkObjectId, knockbackForce);
+                    }
+                }
+                else
+                {
+                    // プレイヤー以外（壁など）に当たった場合はノックバックなし(0)で報告
+                    SubmitShootServerRpc(hit.point, 0, Vector3.zero);
+                }
+            }
+            else
+            {
+                SubmitShootServerRpc(ray.GetPoint(shootRange), 0, Vector3.zero);
+            }
+        }
+    }
+
+    [ServerRpc]
+    void SubmitShootServerRpc(Vector3 hitPoint, ulong targetId, Vector3 knockbackForce)
+    {
+        // 全員にエフェクトを再生させる
+        PlayShootEffectClientRpc(hitPoint);
+
+        // プレイヤーに当たったら、対象者にノックバック命令を出す
+        if (targetId != 0)
+        {
+            ApplyKnockbackClientRpc(targetId, knockbackForce);
+        }
+    }
+
+    [ClientRpc]
+    void ApplyKnockbackClientRpc(ulong targetId, Vector3 knockbackForce)
+    {
+        // 「自分が撃たれたターゲットである」かつ「自分が操作しているキャラである」場合のみ吹っ飛ぶ
+        if (NetworkObjectId == targetId && IsOwner)
+        {
+            // 自分の衝撃変数(impact)に力を加える
+            this.impact += knockbackForce;
+            Debug.Log("撃たれて吹っ飛ばされた！");
+        }
+    }
+
+    [ClientRpc]
+    void PlayShootEffectClientRpc(Vector3 hitPoint)
+    {
+        if (IsOwner) return;
+
+        // 自分以外のプレイヤーの画面で、他人のキャラが銃を撃つ音や光を再生する
+        PlayShootEffectLocal();
+    }
+
+    void PlayShootEffectLocal()
+    {
+        // ここに発砲音（AudioSource.Play）や、銃口の光（ParticleSystem.Play）、弾道エフェクトなどを再生する処理を書く
+        Debug.Log($"【{gameObject.name}】が撃った！");
     }
 }    

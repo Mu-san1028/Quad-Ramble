@@ -16,6 +16,11 @@ public class PlayerItem : MonoBehaviour
         get { return this.Weapons[this.currentWeaponIndex]; }
     }
 
+    public int CurrentWeaponIndex
+    {
+        get { return this.currentWeaponIndex; }
+    }
+
     private void Start()
     {
         this.playerController = GetComponent<PlayerController>();

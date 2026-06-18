@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using UnityEngine;
+using Unity.Netcode;
 
 public class DropOutSensor : MonoBehaviour
 {
@@ -7,7 +8,7 @@ public class DropOutSensor : MonoBehaviour
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
     {
-        roundManager = FindObjectOfType<RoundManager>();
+        roundManager = FindAnyObjectByType<RoundManager>();
     }
 
     // Update is called once per frame
@@ -18,6 +19,7 @@ public class DropOutSensor : MonoBehaviour
 
     void OnTriggerEnter(Collider other)
     {
+        if (!NetworkManager.Singleton.IsServer) return; // ã‚µãƒ¼ãƒãƒ¼ã®ã¿ãŒã“ã®å‡¦ç†ã‚’è¡Œã†
         PlayerController player = other.GetComponent<PlayerController>();
         if (player != null)
         {
@@ -37,8 +39,10 @@ public class DropOutSensor : MonoBehaviour
                 Debug.LogWarning("Can't find roundManager");
             }
 
-            //  —‰º‚µ‚½ƒvƒŒƒCƒ„[‚ğÁ‹
-            Destroy(other.gameObject);
+            //  ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½vï¿½ï¿½ï¿½Cï¿½ï¿½ï¿½[ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+
+            //todo: ãƒ—ãƒ¬ã‚¤ãƒ¤ãƒ¼ã‚’è„±è½ã•ã›ã‚‹å‡¦ç†
+            //player.SetEliminated(true);
         }
     }
 }

@@ -1,12 +1,13 @@
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using System.Collections;
+using Unity.Netcode;
 
 public class RoundManager : MonoBehaviour
 {
-    public timerUI timerUI;         // ƒ^ƒCƒ}[‚Æ•R•t‚¯
-    public string nextSceneName;      // Ÿ‚ÌƒV[ƒ“–¼
-    public int survivingPlayers = 4;  //‰ŠúƒvƒŒƒCƒ„[”
+    public timerUI timerUI;         // ï¿½^ï¿½Cï¿½}ï¿½[ï¿½Æ•Rï¿½tï¿½ï¿½
+    public string nextSceneName;      // ï¿½ï¿½ï¿½ÌƒVï¿½[ï¿½ï¿½ï¿½ï¿½
+    public int survivingPlayers = 4;  //ï¿½ï¿½ï¿½ï¿½ï¿½vï¿½ï¿½ï¿½Cï¿½ï¿½ï¿½[ï¿½ï¿½
 
     private bool _isRoundOver = false;
 
@@ -14,37 +15,37 @@ public class RoundManager : MonoBehaviour
     {
         if (_isRoundOver) return;
 
-        // I—¹ğŒ1:§ŒÀŠÔ‚ªI—¹
+        // ï¿½Iï¿½ï¿½ï¿½ï¿½ï¿½ï¿½1:ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ô‚ï¿½ï¿½Iï¿½ï¿½
         if (timerUI != null && timerUI.GetCurrentTime() <= 0)
         {
-            StartCoroutine(EndRoundRoutine("ƒ^ƒCƒ€ƒAƒbƒvI"));
+            StartCoroutine(EndRoundRoutine("ï¿½^ï¿½Cï¿½ï¿½ï¿½Aï¿½bï¿½vï¿½I"));
         }
     }
 
-    // I—¹ğŒ2:ƒvƒŒƒCƒ„[‚ª1l‚É‚È‚é
+    // ï¿½Iï¿½ï¿½ï¿½ï¿½ï¿½ï¿½2:ï¿½vï¿½ï¿½ï¿½Cï¿½ï¿½ï¿½[ï¿½ï¿½1ï¿½lï¿½É‚È‚ï¿½
     public void OnPlayerDeath()
     {
         if (_isRoundOver) return;
 
         survivingPlayers--;
-        Debug.Log("c‚èl”: " + survivingPlayers);
+        Debug.Log("ï¿½cï¿½ï¿½lï¿½ï¿½: " + survivingPlayers);
 
         if (survivingPlayers <= 1)
         {
-            StartCoroutine(EndRoundRoutine("ƒTƒoƒCƒoƒ‹I—¹I"));
+            StartCoroutine(EndRoundRoutine("ï¿½Tï¿½oï¿½Cï¿½oï¿½ï¿½ï¿½Iï¿½ï¿½ï¿½I"));
         }
     }
 
-    // ƒV[ƒ“Ø‚è‘Ö‚¦
+    // ï¿½Vï¿½[ï¿½ï¿½ï¿½Ø‚ï¿½Ö‚ï¿½
     IEnumerator EndRoundRoutine(string message)
     {
         _isRoundOver = true;
         Debug.Log(message);
 
-        // 3•b‘Ò‹@
+        // 3ï¿½bï¿½Ò‹@
         yield return new WaitForSeconds(3f);
 
-        // Ÿ‚ÌƒV[ƒ“‚Ì“Ç‚İ‚İ
-        SceneManager.LoadScene(nextSceneName);
+        // ï¿½ï¿½ï¿½ÌƒVï¿½[ï¿½ï¿½ï¿½Ì“Ç‚İï¿½ï¿½ï¿½
+        NetworkManager.Singleton.SceneManager.LoadScene(nextSceneName, LoadSceneMode.Single); 
     }
 }

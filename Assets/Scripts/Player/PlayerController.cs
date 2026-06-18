@@ -400,7 +400,6 @@ public class PlayerController : NetworkBehaviour
         {
             Vector3 next = pos + vel * dt;
             vel.y -= gravity * dt;
-            flightTime += dt;
 
             if (Physics.Linecast(pos, next, groundLayers))
                 return pos;
@@ -454,9 +453,10 @@ public class PlayerController : NetworkBehaviour
         foreach (var col in hits)
         {
             var pc = col.GetComponent<PlayerController>();
-            Debug.Log($"[Explosion] candidate: {col.name}, hasPlayerController: {pc != null}, isOwner: {pc?.IsOwner}");
+            // Debug.Log($"[Explosion] candidate: {col.name}, hasPlayerController: {pc != null}, isOwner: {pc?.IsOwner}");
 
             if (pc == null || !pc.IsOwner) continue;
+            if (pc.NetworkObjectId == NetworkObjectId) continue;
 
             Vector3 force = (col.transform.position - center).normalized * power;
             force.y += power * 0.3f;

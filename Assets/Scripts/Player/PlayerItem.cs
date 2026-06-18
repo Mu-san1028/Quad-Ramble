@@ -120,4 +120,22 @@ public class PlayerItem : MonoBehaviour
             return false;
         }
     }
+
+    /// <summary>
+    /// 【外部から呼び出し用】すべての武器スロットを空にする
+    /// </summary>
+    public void ClearAllWeapons()
+    {
+        if (this.Weapons == null) return;
+
+        for (int i = 0; i < this.Weapons.Length; i++)
+        {
+            this.Weapons[i] = null; // スロットを空にする
+        }
+
+        this.currentWeaponIndex = 0; // 装備位置もリセット
+        Debug.Log("外部スクリプトからの要求により、すべての武器を空にしました。");
+
+        // TODO: ここで手に持っている3Dモデルを消したり、UIを消したりする処理を呼ぶ
+    }
 }

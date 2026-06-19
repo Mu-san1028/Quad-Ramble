@@ -49,7 +49,19 @@ public class PlayerManager : MonoBehaviour
         List<WeaponData> allWeapons = new List<WeaponData>();
         foreach (var player in players)
         {
-            allWeapons.AddRange(player.GetComponent<PlayerItem>().Weapons);
+            var pItem = player.GetComponent<PlayerItem>();
+            if (pItem != null)
+            {
+                // スロット（箱）を一つずつ確認する
+                foreach (var slot in pItem.Weapons)
+                {
+                    // 箱が空っぽではなく、かつ中身が WeaponData ならリストに追加
+                    if (slot != null && slot.itemData is WeaponData weaponData)
+                    {
+                        allWeapons.Add(weaponData);
+                    }
+                }
+            }
         }
         return allWeapons;
     }

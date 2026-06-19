@@ -1,15 +1,17 @@
 using UnityEngine;
+using Unity.Netcode;
 
 /// <summary>
 /// プレイヤーのアイテム取得を管理
 /// - アイテムを取得したときの処理
 /// </summary>
 [RequireComponent(typeof(PlayerController))]
-public class PlayerItem : MonoBehaviour
+public class PlayerItem : NetworkBehaviour
 {
-    [SerializeField] public WeaponData[] Weapons { get; private set; } = new WeaponData[3];
+    public WeaponData[] Weapons { get; private set; } = new WeaponData[3];
     private int currentWeaponIndex; // 現在装備している武器
     private PlayerController playerController;
+    private ItemDatabase itemDatabase;
 
     public WeaponData CurrentWeapon
     {
@@ -19,52 +21,74 @@ public class PlayerItem : MonoBehaviour
     private void Start()
     {
         this.playerController = GetComponent<PlayerController>();
+        this.itemDatabase = FindFirstObjectByType<ItemDatabase>();
     }
 
-    public void ApplyItem(ItemBase itemBase)
+    public void ApplyItem(Items item)
     {
-        if (itemBase is WeaponData weapon)
+        this.ApplyItemServerRpc(item);
+    }
+
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    private void ApplyItemServerRpc(Items item) {
+        this.ApplyItemClientRpc(item);
+    }
+
+    [ClientRpc]
+    private void ApplyItemClientRpc(Items item)
+    {
+        ItemBase data = this.itemDatabase.GetItem(item);
+        if (data is ConsumableItemData consumableItem)
         {
-            Debug.Log("武器を取得: " + weapon.name);
-            // 空いているスロット（nullの場所）を探す
-            int emptySlotIndex = -1;
-            for (int i = 0; i < this.Weapons.Length; i++)
-            {
-                if (this.Weapons[i] == null)
-                {
-                    emptySlotIndex = i;
-                    break;
-                }
-            }
+            this.ApplyConsumableItem(consumableItem);
+        }
+        else if (data is WeaponData weapon)
+        {
+            this.ApplyWeapon(weapon);
+        }
+    }
 
-            if (emptySlotIndex != -1)
-            {
-                // 空き枠がある場合：そこに武器を入れる
-                this.Weapons[emptySlotIndex] = weapon;
-                Debug.Log($"スロット {emptySlotIndex + 1} に {weapon.name} を収納した！");
+    private void ApplyConsumableItem(ConsumableItemData data) {
+        Debug.Log("消費アイテムを取得: " + data.name);
+        this.playerController.ApplyBoost(data);
+    }
 
-                // もし初めて武器を拾ったなら、自動でそれを装備する
-                if (CurrentWeapon == null || emptySlotIndex == 0) 
-                {
-                    EquipWeapon(emptySlotIndex);
-                }
-            }
-            else
+    private void ApplyWeapon(WeaponData weapon) {
+        Debug.Log("武器を取得: " + weapon.name);
+
+        // 空いているスロット（nullの場所）を探す
+        int emptySlotIndex = -1;
+        for (int i = 0; i < this.Weapons.Length; i++)
+        {
+            if (this.Weapons[i] == null)
             {
-                // カバンがいっぱいの場合：今の武器と入れ替える
-                Debug.Log($"カバンが満杯！ {CurrentWeapon.name} を捨てて {weapon.name} を装備した！");
-                
-                // TODO: ここで「古い武器(CurrentWeapon)のPrefabを目の前にドロップする処理」を入れる
-                
-                // 現在のスロットを新しい武器で上書きする
-                this.Weapons[currentWeaponIndex] = weapon;
-                EquipWeapon(currentWeaponIndex);
+                emptySlotIndex = i;
+                break;
             }
         }
-        else if (itemBase is ConsumableItemData consumable)
+
+        if (emptySlotIndex != -1)
         {
-            Debug.Log("消費アイテムを取得: " + consumable.name);
-            this.playerController.ApplyBoost(consumable);
+            // 空き枠がある場合：そこに武器を入れる
+            this.Weapons[emptySlotIndex] = weapon;
+            Debug.Log($"スロット {emptySlotIndex + 1} に {weapon.name} を収納した！");
+
+            // もし初めて武器を拾ったなら、自動でそれを装備する
+            if (CurrentWeapon == null || emptySlotIndex == 0)
+            {
+                EquipWeapon(emptySlotIndex);
+            }
+        }
+        else
+        {
+            // カバンがいっぱいの場合：今の武器と入れ替える
+            Debug.Log($"カバンが満杯！ {CurrentWeapon.name} を捨てて {weapon.name} を装備した！");
+
+            // TODO: ここで「古い武器(CurrentWeapon)のPrefabを目の前にドロップする処理」を入れる
+
+            // 現在のスロットを新しい武器で上書きする
+            this.Weapons[currentWeaponIndex] = weapon;
+            EquipWeapon(currentWeaponIndex);
         }
     }
 

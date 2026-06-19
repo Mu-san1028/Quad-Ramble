@@ -1,0 +1,44 @@
+using System.Linq;
+using UnityEngine;
+
+public enum Items
+{
+    // Consumable Items
+    JumpBoost,
+    SpeedBoost,
+    TurnSpeedBoost,
+
+    // Weapons
+    Bomb,
+    Gun,
+    Thorn,
+}
+
+public class ItemDatabase : MonoBehaviour
+{
+    [System.Serializable]
+    private class ItemEntry
+    {
+        public Items key;
+        public ItemBase value;
+    }
+
+    [SerializeField] private ItemEntry[] items;
+
+    public static ItemDatabase Instance { get; private set; }
+
+    private void Awake()
+    {
+        if (ItemDatabase.Instance)
+        {
+            Debug.LogWarning("An instance of ItemDatabase already exists.");
+            Destroy(this.gameObject);
+        }
+        else
+        {
+            ItemDatabase.Instance = this;
+        }
+    }
+
+    public ItemBase GetItem(Items key) => this.items.First(entry => entry.key == key).value;
+}

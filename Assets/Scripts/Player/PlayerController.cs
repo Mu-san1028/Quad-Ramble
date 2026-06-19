@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 using System.Collections;
+using Unity.Netcode;
 
 /// <summary>
 /// プレイヤーの移動、ジャンプ、慣性、カメラの処理を管理
@@ -8,7 +9,7 @@ using System.Collections;
 /// - キャラクターが移動方向に向くように回転
 /// </summary>
 [RequireComponent(typeof(CharacterController), typeof(PlayerItem))]
-public class PlayerController : MonoBehaviour
+public class PlayerController : NetworkBehaviour
 {
     [SerializeField] private float moveSpeed = 5f; // 基本の移動速度
     [SerializeField] private float acceleration = 20f; // 加速力
@@ -44,7 +45,8 @@ public class PlayerController : MonoBehaviour
     // GMなどの別のスクリプトから、player.currentMoveMode = MoveMode.WorldAbsolute; のようにして、移動モードを切り替えることができる。
     public MoveMode CurrentMoveMode { get; set; } = MoveMode.CameraRelative;
 
-    void Start()
+    // NGOインスタンスがスポーンしたときに呼び出される
+    public override void OnNetworkSpawn()
     {
         this.controller = GetComponent<CharacterController>();
         this.playerItem = GetComponent<PlayerItem>();
@@ -56,6 +58,10 @@ public class PlayerController : MonoBehaviour
             mainCamera = Camera.main.transform;
         }
         PlayerManager.Instance.AddPlayer(this);
+
+        // プレイヤーのキー入力は、1つのPlayerInputインスタンスにしか適用されない。
+        // 複数のPlayerInputが有効になっていると、意図しないインスタンスに入力を吸われるため、無効化する。
+        this.playerInput.enabled = IsOwner;
     }
 
     void OnJump(InputValue value)
@@ -178,6 +184,9 @@ public class PlayerController : MonoBehaviour
 
         // ブーストの効果が切れるまで待機
         yield return new WaitForSeconds(consumable.duration);
+
+        Debug.Log("jumpHeight: " + jumpHeight);
+        Debug.Log("originalJumpHeight: " + originalJumpHeight);
 
         // 元の値に戻す
         moveSpeed = originalSpeed;

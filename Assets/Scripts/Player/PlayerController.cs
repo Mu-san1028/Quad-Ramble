@@ -239,9 +239,6 @@ public class PlayerController : NetworkBehaviour
         // ブーストの効果が切れるまで待機
         yield return new WaitForSeconds(consumable.duration);
 
-        Debug.Log("jumpHeight: " + jumpHeight);
-        Debug.Log("originalJumpHeight: " + originalJumpHeight);
-
         // 元の値に戻す
         moveSpeed = originalSpeed;
         jumpHeight = originalJumpHeight;

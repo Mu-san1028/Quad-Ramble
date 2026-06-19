@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using UnityEngine;
 
@@ -16,7 +17,7 @@ public enum Items
 
 public class ItemDatabase : MonoBehaviour
 {
-    [System.Serializable]
+    [Serializable]
     private class ItemEntry
     {
         public Items key;

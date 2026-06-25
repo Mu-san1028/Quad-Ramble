@@ -3,13 +3,31 @@ using UnityEngine.SceneManagement;
 using System.Collections;
 using Unity.Netcode;
 
+[System.Serializable]
 public class RoundManager : MonoBehaviour
 {
+
     public timerUI timerUI;         // タイマーと紐付け
     public string nextSceneName;      // 次のシーン名
     public int survivingPlayers = 4;  // 生存プレイヤー数
+    [SerializeField]public PlayerController[] players; // 操作するプレイヤーたちが入る
+    [SerializeField]public PlayerSpawner playerSpawner; // プレイヤーをスポーンさせるためのスクリプト
+
 
     private bool _isRoundOver = false;
+    void Start()
+    {
+        if (playerSpawner == null)
+        {
+            playerSpawner = FindAnyObjectByType<PlayerSpawner>();
+        }
+
+        // プレイヤーをスポーンさせる
+        for (int i = 0; i < players.Length; i++)
+        {
+            playerSpawner.SpawnPlayer(players[i], i);
+        }
+    }
 
     void Update()
     {
@@ -44,7 +62,9 @@ public class RoundManager : MonoBehaviour
 
         yield return new WaitForSeconds(3f);
 
+
         // ネットワーク対応しました
         NetworkManager.Singleton.SceneManager.LoadScene(nextSceneName, LoadSceneMode.Single); 
+
     }
 }

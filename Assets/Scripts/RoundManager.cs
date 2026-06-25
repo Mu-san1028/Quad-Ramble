@@ -3,49 +3,68 @@ using UnityEngine.SceneManagement;
 using System.Collections;
 using Unity.Netcode;
 
+[System.Serializable]
 public class RoundManager : MonoBehaviour
 {
-    public timerUI timerUI;         // �^�C�}�[�ƕR�t��
-    public string nextSceneName;      // ���̃V�[����
-    public int survivingPlayers = 4;  //�����v���C���[��
+
+    public timerUI timerUI;         // タイマーと紐付け
+    public string nextSceneName;      // 次のシーン名
+    public int survivingPlayers = 4;  // 生存プレイヤー数
+    [SerializeField]public PlayerController[] players; // 操作するプレイヤーたちが入る
+    [SerializeField]public PlayerSpawner playerSpawner; // プレイヤーをスポーンさせるためのスクリプト
+
 
     private bool _isRoundOver = false;
+    void Start()
+    {
+        if (playerSpawner == null)
+        {
+            playerSpawner = FindAnyObjectByType<PlayerSpawner>();
+        }
+
+        // プレイヤーをスポーンさせる
+        for (int i = 0; i < players.Length; i++)
+        {
+            playerSpawner.SpawnPlayer(players[i], i);
+        }
+    }
 
     void Update()
     {
         if (_isRoundOver) return;
 
-        // �I������1:�������Ԃ��I��
+        // タイマーが0になったらラウンド終了
         if (timerUI != null && timerUI.GetCurrentTime() <= 0)
         {
-            StartCoroutine(EndRoundRoutine("�^�C���A�b�v�I"));
+            StartCoroutine(EndRoundRoutine("サバイバル終了！"));
         }
     }
 
-    // �I������2:�v���C���[��1�l�ɂȂ�
+    // プレイヤーが0人になったらラウンド終了
     public void OnPlayerDeath()
     {
         if (_isRoundOver) return;
 
         survivingPlayers--;
-        Debug.Log("�c��l��: " + survivingPlayers);
+        Debug.Log("残り人数: " + survivingPlayers);
 
         if (survivingPlayers <= 1)
         {
-            StartCoroutine(EndRoundRoutine("�T�o�C�o���I���I"));
+            StartCoroutine(EndRoundRoutine("タイムアップ！"));
         }
     }
 
-    // �V�[���؂�ւ�
+    // シーン切り替え
     IEnumerator EndRoundRoutine(string message)
     {
         _isRoundOver = true;
         Debug.Log(message);
 
-        // 3�b�ҋ@
         yield return new WaitForSeconds(3f);
 
-        // ���̃V�[���̓ǂݍ���
+
+        // ネットワーク対応しました
         NetworkManager.Singleton.SceneManager.LoadScene(nextSceneName, LoadSceneMode.Single); 
+
     }
 }

@@ -147,6 +147,12 @@ public class PlayerController : NetworkBehaviour
         }
     }
 
+    // 外部のギミックによる速度変化
+    public void VelocityChange(Vector3 externalAcceleration)
+    {
+        velocity += externalAcceleration;
+
+    }
     void Update()
     {
         if (!IsOwner) return; // 自分の操作するキャラじゃなければ、以下の処理をしない
@@ -403,12 +409,19 @@ public class PlayerController : NetworkBehaviour
         {
             Vector3 next = pos + vel * dt;
             vel.y -= gravity * dt;
+            flightTime += dt;
 
             if (Physics.Linecast(pos, next, groundLayers))
                 return pos;
 
-            if (Physics.Linecast(pos, next, shootableLayers))
-            return pos;
+            if (Physics.Linecast(pos, next, out RaycastHit hit, shootableLayers))
+            {
+                var hitNetObj = hit.collider.GetComponent<NetworkObject>();
+                if (hitNetObj == null || hitNetObj.NetworkObjectId != NetworkObjectId)
+                {
+                    return pos;
+                }
+            }
 
             pos = next;
         }

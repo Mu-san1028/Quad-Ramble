@@ -101,6 +101,12 @@ public class PlayerController : MonoBehaviour
         }
     }
 
+    // 外部のギミックによる速度変化
+    public void VelocityChange(Vector3 externalAcceleration)
+    {
+        velocity += externalAcceleration;
+
+    }
     void Update()
     {
         #region カメラ相対移動の計算

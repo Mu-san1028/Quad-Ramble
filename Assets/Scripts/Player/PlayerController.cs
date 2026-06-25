@@ -144,6 +144,12 @@ public class PlayerController : NetworkBehaviour
         }
     }
 
+    // 外部のギミックによる速度変化
+    public void VelocityChange(Vector3 externalAcceleration)
+    {
+        velocity += externalAcceleration;
+
+    }
     void Update()
     {
         if (!IsOwner) return; // 自分の操作するキャラじゃなければ、以下の処理をしない

@@ -59,7 +59,10 @@ public class PlayerController : NetworkBehaviour
     {
 
         PlayerInput input = GetComponent<PlayerInput>();
-        if (input != null) input.enabled = IsOwner; // 自分のキャラのPlayerInputだけ有効にする
+
+        // プレイヤーのキー入力は、1つのPlayerInputインスタンスにしか適用されない。
+        // 複数のPlayerInputが有効になっていると、意図しないインスタンスに入力を吸われるため、無効化する。
+        if (input != null) input.enabled = IsOwner;
 
         // もし、このキャラが「自分の操作するキャラ」ではない（＝他人のクローン）場合
         if (!IsOwner)
@@ -535,6 +538,4 @@ public class PlayerController : NetworkBehaviour
         float rad = launchAngle * Mathf.Deg2Rad;
         return forward * Mathf.Cos(rad) + Vector3.up * Mathf.Sin(rad);
     }
-
-
 }    

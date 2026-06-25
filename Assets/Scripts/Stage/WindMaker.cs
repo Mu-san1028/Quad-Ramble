@@ -12,7 +12,7 @@ public class WindMaker : MonoBehaviour
     [SerializeField] private Vector3 accelration;
 
     //現在の風が当たっているプレイヤーのリスト
-    private List<PlayerController> windList = new List<PlayerController>; 
+    private List<PlayerController> windList = new List<PlayerController>(); 
 
     //範囲内に入ってきたプレイヤーのPlayerControllerをリストに加える
     private void OnTriggerEnter(Collider other)
@@ -35,7 +35,7 @@ public class WindMaker : MonoBehaviour
     //毎フレームリストにあるプレイヤーに加速度を与える
     void FixedUpdate()
     {
-        for (int i; i < windList.Count; i++)
+        for (int i = 0; i < windList.Count; i++)
         {
 
         }

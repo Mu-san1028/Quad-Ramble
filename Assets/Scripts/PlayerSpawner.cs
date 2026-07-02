@@ -9,6 +9,7 @@ public class PlayerSpawner : MonoBehaviour
     }
     public void SpawnPlayer(PlayerController player, int spawnIndex)
     {
+        player.CurrentMoveMode = PlayerController.MoveMode.WorldAbsolute;
         // スポーンポイントのインデックスが有効かどうかを確認
         if (spawnIndex < 0 || spawnIndex >= spawnPoints.Length)
         {

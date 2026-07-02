@@ -22,19 +22,25 @@ public class RoundManager : MonoBehaviour
             playerSpawner = FindAnyObjectByType<PlayerSpawner>();
         }
 
-        // プレイヤーをスポーンさせる
-        for (int i = 0; i < players.Length; i++)
+        if (timerUI == null)
         {
-            playerSpawner.SpawnPlayer(players[i], i);
+            timerUI = FindAnyObjectByType<timerUI>();
         }
+        if(!NetworkManager.Singleton.IsServer) return;
+        var activePlayers = PlayerManager.Instance.players;
+        for (int i = 0; i < activePlayers.Count; i++)
+        {
+            playerSpawner.SpawnPlayer(activePlayers[i], i);
+        }
+        
     }
 
     void Update()
     {
         if (_isRoundOver) return;
-
         // タイマーが0になったらラウンド終了
-        if (timerUI != null && timerUI.GetCurrentTime() <= 0)
+        // サーバー側でのみ処理する
+        if (timerUI != null && timerUI.GetCurrentTime() <= 0 && NetworkManager.Singleton.IsServer) 
         {
             StartCoroutine(EndRoundRoutine("サバイバル終了！"));
         }
@@ -62,9 +68,9 @@ public class RoundManager : MonoBehaviour
 
         yield return new WaitForSeconds(3f);
 
-
+        if (!NetworkManager.Singleton.IsServer) yield break;
         // ネットワーク対応しました
-        NetworkManager.Singleton.SceneManager.LoadScene(nextSceneName, LoadSceneMode.Single); 
+        NetworkManager.Singleton.SceneManager.LoadScene(nextSceneName, LoadSceneMode.Single);
 
     }
 }

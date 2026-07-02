@@ -3,18 +3,18 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// •—‚ğ‹N‚±‚·ƒIƒuƒWƒFƒNƒg‚ÉƒAƒ^ƒbƒ`
-/// - G‚ê‚½ƒvƒŒƒCƒ„[‚É‰Á‘¬“x‚ğ—^‚¦‚é
+/// ï¿½ï¿½ï¿½ï¿½ï¿½Nï¿½ï¿½ï¿½ï¿½ï¿½Iï¿½uï¿½Wï¿½Fï¿½Nï¿½gï¿½ÉƒAï¿½^ï¿½bï¿½`
+/// - ï¿½Gï¿½ê‚½ï¿½vï¿½ï¿½ï¿½Cï¿½ï¿½ï¿½[ï¿½É‰ï¿½ï¿½ï¿½ï¿½xï¿½ï¿½^ï¿½ï¿½ï¿½ï¿½
 /// </summary>
 public class WindMaker : MonoBehaviour
 {
-    //ƒvƒŒƒCƒ„[‚É‚©‚¯‚é‰Á‘¬“x‚ğ“ü—Í
+    //ï¿½vï¿½ï¿½ï¿½Cï¿½ï¿½ï¿½[ï¿½É‚ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½xï¿½ï¿½ï¿½ï¿½ï¿½
     [SerializeField] private Vector3 accelration;
 
-    //Œ»İ‚Ì•—‚ª“–‚½‚Á‚Ä‚¢‚éƒvƒŒƒCƒ„[‚ÌƒŠƒXƒg
-    private List<PlayerController> windList = new List<PlayerController>; 
+    //ï¿½ï¿½ï¿½İ‚Ì•ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä‚ï¿½ï¿½ï¿½vï¿½ï¿½ï¿½Cï¿½ï¿½ï¿½[ï¿½Ìƒï¿½ï¿½Xï¿½g
+    private List<PlayerController> windList = new List<PlayerController>(); 
 
-    //”ÍˆÍ“à‚É“ü‚Á‚Ä‚«‚½ƒvƒŒƒCƒ„[‚ÌPlayerController‚ğƒŠƒXƒg‚É‰Á‚¦‚é
+    //ï¿½ÍˆÍ“ï¿½ï¿½É“ï¿½ï¿½ï¿½ï¿½Ä‚ï¿½ï¿½ï¿½ï¿½vï¿½ï¿½ï¿½Cï¿½ï¿½ï¿½[ï¿½ï¿½PlayerControllerï¿½ï¿½ï¿½ï¿½ï¿½Xï¿½gï¿½É‰ï¿½ï¿½ï¿½ï¿½ï¿½
     private void OnTriggerEnter(Collider other)
     {
         if (other.gameObject.CompareTag("Player"))
@@ -23,7 +23,7 @@ public class WindMaker : MonoBehaviour
         }
     }
 
-    //”ÍˆÍŠO‚É“ü‚Á‚Ä‚«‚½ƒvƒŒƒCƒ„[‚ÌPlayerController‚ğƒŠƒXƒg‚©‚çœŠO
+    //ï¿½ÍˆÍŠOï¿½É“ï¿½ï¿½ï¿½ï¿½Ä‚ï¿½ï¿½ï¿½ï¿½vï¿½ï¿½ï¿½Cï¿½ï¿½ï¿½[ï¿½ï¿½PlayerControllerï¿½ï¿½ï¿½ï¿½ï¿½Xï¿½gï¿½ï¿½ï¿½çœï¿½O
     private void OnTriggerExit(Collider other)
     {
         if (other.gameObject.CompareTag("Player"))
@@ -32,10 +32,10 @@ public class WindMaker : MonoBehaviour
         }
     }
 
-    //–ˆƒtƒŒ[ƒ€ƒŠƒXƒg‚É‚ ‚éƒvƒŒƒCƒ„[‚É‰Á‘¬“x‚ğ—^‚¦‚é
+    //ï¿½ï¿½ï¿½tï¿½ï¿½ï¿½[ï¿½ï¿½ï¿½ï¿½ï¿½Xï¿½gï¿½É‚ï¿½ï¿½ï¿½vï¿½ï¿½ï¿½Cï¿½ï¿½ï¿½[ï¿½É‰ï¿½ï¿½ï¿½ï¿½xï¿½ï¿½^ï¿½ï¿½ï¿½ï¿½
     void FixedUpdate()
     {
-        for (int i; i < windList.Count; i++)
+        for (int i = 0; i < windList.Count; i++)
         {
 
         }

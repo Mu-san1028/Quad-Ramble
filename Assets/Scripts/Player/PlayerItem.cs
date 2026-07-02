@@ -65,7 +65,7 @@ public class PlayerItem : NetworkBehaviour
         int emptySlotIndex = -1;
         for (int i = 0; i < this.Weapons.Length; i++)
         {
-            if (this.Weapons[i] == null)
+            if (this.Weapons[i] == null || this.Weapons[i].itemData == null)
             {
                 emptySlotIndex = i;
                 break;
@@ -79,7 +79,7 @@ public class PlayerItem : NetworkBehaviour
 
             // はじめて武器を拾った時は自動装備
             // （CurrentWeapon 自体が無い、または中身が無い場合）
-            if (CurrentWeapon == null || emptySlotIndex == 0) 
+            if (CurrentWeapon == null || CurrentWeapon.itemData == null) 
             {
                 EquipWeapon(emptySlotIndex);
             }

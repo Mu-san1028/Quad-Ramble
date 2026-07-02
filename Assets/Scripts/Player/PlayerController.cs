@@ -54,13 +54,14 @@ public class PlayerController : NetworkBehaviour
     }
 
     // GMなどの別のスクリプトから、player.currentMoveMode = MoveMode.WorldAbsolute; のようにして、移動モードを切り替えることができる。
-    public MoveMode CurrentMoveMode { get; set; } = MoveMode.CameraRelative;
+    public MoveMode CurrentMoveMode { get; set; } = MoveMode.WorldAbsolute;
 
     private bool IsControllable => IsOwner || this.allowOfflineControl;
 
     // ネットワーク上にこのキャラが生成された時に1回だけ呼ばれるメソッド
     public override void OnNetworkSpawn()
     {
+        PlayerManager.Instance.AddPlayer(this);
         PlayerInput input = GetComponent<PlayerInput>();
 
         // プレイヤーのキー入力は、1つのPlayerInputインスタンスにしか適用されない。
@@ -95,12 +96,15 @@ public class PlayerController : NetworkBehaviour
         this.controller = GetComponent<CharacterController>();
         this.playerItem = GetComponent<PlayerItem>();
 
+        // オーナーじゃなかったら、カメラの設定をスキップする
+        if (!IsOwner) return;
+
         // メインカメラが設定されていなければ、自動でシーン内のMain Cameraを探す
         if (mainCamera == null)
         {
             mainCamera = Camera.main.transform;
         }
-        PlayerManager.Instance.AddPlayer(this);
+
     }
 
     void OnJump(InputValue value)

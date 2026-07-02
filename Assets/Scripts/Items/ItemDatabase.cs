@@ -13,6 +13,7 @@ public enum Items
     Bomb,
     Gun,
     Thorn,
+    Spear,
 }
 
 public class ItemDatabase : MonoBehaviour

@@ -39,16 +39,16 @@ public class QuizFloor : MonoBehaviour
     {
         isDissolved = true;
 
-        // 床を消す
-        gameObject.SetActive(false);
-        Debug.Log("不正解！床が消えます。");
+        // 非表示にして、当たり判定を消す（オブジェクト自体は有効のままにする）
+        GetComponent<Renderer>().enabled = false;
+        GetComponent<Collider>().enabled = false;
 
-        // 5秒待つ
+        // これならスクリプトが停止しないので5秒後に復活できる
         yield return new WaitForSeconds(5.0f);
 
-        // 床を復活させる
-        gameObject.SetActive(true);
+        // 元に戻す
+        GetComponent<Renderer>().enabled = true;
+        GetComponent<Collider>().enabled = true;
         isDissolved = false;
-        Debug.Log("床が復活しました。");
     }
 }

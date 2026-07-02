@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 using System.Collections;
+using Unity.Cinemachine;
 using Unity.Netcode;
 
 /// <summary>
@@ -8,18 +9,17 @@ using Unity.Netcode;
 /// - カメラ相対移動とワールド空間絶対移動の切り替え
 /// - キャラクターが移動方向に向くように回転
 /// </summary>
-[RequireComponent(typeof(CharacterController), typeof(PlayerItem))]
+[RequireComponent(typeof(CharacterController), typeof(PlayerInput), typeof(PlayerItem))]
 public class PlayerController : NetworkBehaviour
 {
     [SerializeField] private float moveSpeed = 5f; // 基本の移動速度
     [SerializeField] private float acceleration = 20f; // 加速力
     [SerializeField] private float deceleration = 20f; // ブレーキ力
     private CharacterController controller;
-    private PlayerInput playerInput;
     private Vector2 moveInput;
 
     [SerializeField] private Transform mainCamera;
-    public Unity.Cinemachine.CinemachineCamera aimCamera;
+    public CinemachineCamera aimCamera;
     [SerializeField] private float turnSmoothTime = 1.0f; // キャラクターが振り向くまでの時間
     [SerializeField] private float turnSmoothVelocity; 
 
@@ -43,8 +43,10 @@ public class PlayerController : NetworkBehaviour
     [Header("投擲設定")]
     [SerializeField] private LayerMask groundLayers; // 地面・壁のレイヤー  
 
-
     private bool isAiming = false;
+
+    [Header("Debug")]
+    [SerializeField] private bool allowOfflineControl = false;
 
     public enum MoveMode { 
         CameraRelative, // カメラの向きに合わせて移動するモード（TPSやFPS用）
@@ -54,12 +56,16 @@ public class PlayerController : NetworkBehaviour
     // GMなどの別のスクリプトから、player.currentMoveMode = MoveMode.WorldAbsolute; のようにして、移動モードを切り替えることができる。
     public MoveMode CurrentMoveMode { get; set; } = MoveMode.CameraRelative;
 
+    private bool IsControllable => IsOwner || this.allowOfflineControl;
+
     // ネットワーク上にこのキャラが生成された時に1回だけ呼ばれるメソッド
     public override void OnNetworkSpawn()
     {
-
         PlayerInput input = GetComponent<PlayerInput>();
-        if (input != null) input.enabled = IsOwner; // 自分のキャラのPlayerInputだけ有効にする
+
+        // プレイヤーのキー入力は、1つのPlayerInputインスタンスにしか適用されない。
+        // 複数のPlayerInputが有効になっていると、意図しないインスタンスに入力を吸われるため、無効化する。
+        input.enabled = IsOwner;
 
         // もし、このキャラが「自分の操作するキャラ」ではない（＝他人のクローン）場合
         if (!IsOwner)
@@ -68,14 +74,13 @@ public class PlayerController : NetworkBehaviour
             if (aimCamera != null) aimCamera.gameObject.SetActive(false);
             // 他人のクローンのメインカメラもオフにする
             if (mainUnityCamera != null) mainUnityCamera.gameObject.SetActive(false);
-
         }
         else
         {
             var followCamObj = GameObject.FindWithTag("FollowCamera");
             if (followCamObj != null)
             {
-                var followCam = followCamObj.GetComponent<Unity.Cinemachine.CinemachineCamera>();
+                var followCam = followCamObj.GetComponent<CinemachineCamera>();
                 if (followCam != null)
                 {
                     followCam.Follow = transform;
@@ -89,9 +94,6 @@ public class PlayerController : NetworkBehaviour
     {
         this.controller = GetComponent<CharacterController>();
         this.playerItem = GetComponent<PlayerItem>();
-        playerInput = GetComponent<PlayerInput>();
-
-        Debug.Log($"[Start] gameObject: {gameObject.name}, instanceID: {GetInstanceID()}, groundLayers: {groundLayers.value}");
 
         // メインカメラが設定されていなければ、自動でシーン内のMain Cameraを探す
         if (mainCamera == null)
@@ -148,11 +150,11 @@ public class PlayerController : NetworkBehaviour
     public void VelocityChange(Vector3 externalAcceleration)
     {
         velocity += externalAcceleration;
-
     }
+
     void Update()
     {
-        if (!IsOwner) return; // 自分の操作するキャラじゃなければ、以下の処理をしない
+        if (!this.IsControllable) return;
 
         #region カメラ相対移動の計算
         Vector3 forwardDirection, rightDirection;
@@ -269,7 +271,7 @@ public class PlayerController : NetworkBehaviour
     // R2ボタンが押された時
     void OnFire(InputValue value)
     {
-        if (!IsOwner) return;
+        if (!this.IsControllable) return;
         if (!value.isPressed) return;
 
         if (!this.playerItem.TryConsumeAmmo())
@@ -480,7 +482,7 @@ public class PlayerController : NetworkBehaviour
 
     public void TakeKnockback(Vector3 force)
     {
-        if (!IsOwner) return;
+        if (!this.IsControllable) return;
         Debug.Log($"[TakeKnockback] impact適用前: {impact}, 追加するforce: {force}");
         impact += force;
     }
@@ -535,6 +537,4 @@ public class PlayerController : NetworkBehaviour
         float rad = launchAngle * Mathf.Deg2Rad;
         return forward * Mathf.Cos(rad) + Vector3.up * Mathf.Sin(rad);
     }
-
-
 }    

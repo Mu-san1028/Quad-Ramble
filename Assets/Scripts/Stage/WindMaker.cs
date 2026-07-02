@@ -3,18 +3,18 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// ï¿½ï¿½ï¿½ï¿½ï¿½Nï¿½ï¿½ï¿½ï¿½ï¿½Iï¿½uï¿½Wï¿½Fï¿½Nï¿½gï¿½ÉƒAï¿½^ï¿½bï¿½`
-/// - ï¿½Gï¿½ê‚½ï¿½vï¿½ï¿½ï¿½Cï¿½ï¿½ï¿½[ï¿½É‰ï¿½ï¿½ï¿½ï¿½xï¿½ï¿½^ï¿½ï¿½ï¿½ï¿½
+/// ?¿½?¿½?¿½?¿½?¿½N?¿½?¿½?¿½?¿½?¿½I?¿½u?¿½W?¿½F?¿½N?¿½g?¿½ÉƒA?¿½^?¿½b?¿½`
+/// - ?¿½G?¿½ê‚½?¿½v?¿½?¿½?¿½C?¿½?¿½?¿½[?¿½É‰ï¿½?¿½?¿½?¿½x?¿½?¿½^?¿½?¿½?¿½?¿½
 /// </summary>
 public class WindMaker : MonoBehaviour
 {
-    //ï¿½vï¿½ï¿½ï¿½Cï¿½ï¿½ï¿½[ï¿½É‚ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½xï¿½ï¿½ï¿½ï¿½ï¿½
+    //?¿½v?¿½?¿½?¿½C?¿½?¿½?¿½[?¿½É‚ï¿½?¿½?¿½?¿½?¿½?¿½?¿½?¿½?¿½x?¿½?¿½?¿½?¿½?¿½
     [SerializeField] private Vector3 accelration;
 
-    //ï¿½ï¿½ï¿½Ý‚Ì•ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä‚ï¿½ï¿½ï¿½vï¿½ï¿½ï¿½Cï¿½ï¿½ï¿½[ï¿½Ìƒï¿½ï¿½Xï¿½g
+    //Œ»Ý‚Ì•—‚ª“–‚½‚Á‚Ä‚¢‚éƒvƒŒƒCƒ„[‚ÌƒŠƒXƒg
     private List<PlayerController> windList = new List<PlayerController>(); 
 
-    //ï¿½ÍˆÍ“ï¿½ï¿½É“ï¿½ï¿½ï¿½ï¿½Ä‚ï¿½ï¿½ï¿½ï¿½vï¿½ï¿½ï¿½Cï¿½ï¿½ï¿½[ï¿½ï¿½PlayerControllerï¿½ï¿½ï¿½ï¿½ï¿½Xï¿½gï¿½É‰ï¿½ï¿½ï¿½ï¿½ï¿½
+    //?¿½ÍˆÍ“ï¿½?¿½É“ï¿½?¿½?¿½?¿½Ä‚ï¿½?¿½?¿½?¿½v?¿½?¿½?¿½C?¿½?¿½?¿½[?¿½?¿½PlayerController?¿½?¿½?¿½?¿½?¿½X?¿½g?¿½É‰ï¿½?¿½?¿½?¿½?¿½
     private void OnTriggerEnter(Collider other)
     {
         if (other.gameObject.CompareTag("Player"))
@@ -23,7 +23,7 @@ public class WindMaker : MonoBehaviour
         }
     }
 
-    //ï¿½ÍˆÍŠOï¿½É“ï¿½ï¿½ï¿½ï¿½Ä‚ï¿½ï¿½ï¿½ï¿½vï¿½ï¿½ï¿½Cï¿½ï¿½ï¿½[ï¿½ï¿½PlayerControllerï¿½ï¿½ï¿½ï¿½ï¿½Xï¿½gï¿½ï¿½ï¿½çœï¿½O
+    //?¿½ÍˆÍŠO?¿½É“ï¿½?¿½?¿½?¿½Ä‚ï¿½?¿½?¿½?¿½v?¿½?¿½?¿½C?¿½?¿½?¿½[?¿½?¿½PlayerController?¿½?¿½?¿½?¿½?¿½X?¿½g?¿½?¿½?¿½çœï¿½O
     private void OnTriggerExit(Collider other)
     {
         if (other.gameObject.CompareTag("Player"))
@@ -32,7 +32,7 @@ public class WindMaker : MonoBehaviour
         }
     }
 
-    //ï¿½ï¿½ï¿½tï¿½ï¿½ï¿½[ï¿½ï¿½ï¿½ï¿½ï¿½Xï¿½gï¿½É‚ï¿½ï¿½ï¿½vï¿½ï¿½ï¿½Cï¿½ï¿½ï¿½[ï¿½É‰ï¿½ï¿½ï¿½ï¿½xï¿½ï¿½^ï¿½ï¿½ï¿½ï¿½
+    //?¿½?¿½?¿½t?¿½?¿½?¿½[?¿½?¿½?¿½?¿½?¿½X?¿½g?¿½É‚ï¿½?¿½?¿½v?¿½?¿½?¿½C?¿½?¿½?¿½[?¿½É‰ï¿½?¿½?¿½?¿½x?¿½?¿½^?¿½?¿½?¿½?¿½
     void FixedUpdate()
     {
         for (int i = 0; i < windList.Count; i++)

@@ -406,12 +406,19 @@ public class PlayerController : NetworkBehaviour
         {
             Vector3 next = pos + vel * dt;
             vel.y -= gravity * dt;
+            flightTime += dt;
 
             if (Physics.Linecast(pos, next, groundLayers))
                 return pos;
 
-            if (Physics.Linecast(pos, next, shootableLayers))
-            return pos;
+            if (Physics.Linecast(pos, next, out RaycastHit hit, shootableLayers))
+            {
+                var hitNetObj = hit.collider.GetComponent<NetworkObject>();
+                if (hitNetObj == null || hitNetObj.NetworkObjectId != NetworkObjectId)
+                {
+                    return pos;
+                }
+            }
 
             pos = next;
         }

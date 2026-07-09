@@ -1,4 +1,3 @@
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -7,10 +6,9 @@ using UnityEngine;
 /// </summary>
 public class PlayerManager : MonoBehaviour
 {
-    
     public static PlayerManager Instance { get; private set; }
-    public List<PlayerController> players = new List<PlayerController>();
-    // Start is called once before the first execution of Update after the MonoBehaviour is created
+    public List<PlayerController> Players { get; private set; } = new ();
+
     void Awake()
     {
         if (Instance == null)
@@ -20,34 +18,32 @@ public class PlayerManager : MonoBehaviour
         }
         else
         {
+            Debug.LogWarning("PlayerManager follows singleton pattern!");
             Destroy(gameObject);
         }
-    }
-    void Start()
-    {
-        
-    }
-
-    // Update is called once per frame
-    void Update()
-    {
-        
     }
 
     public void DropOut(PlayerController player)
     {
-        players.Remove(player);
+        this.Players.Remove(player);
+        Debug.Log("残り人数: " + this.Players.Count);
+        
+        if (this.Players.Count <= 1)
+        {
+            // プレイヤーが1人になったらラウンド終了
+            RoundManager.Instance.EndRound();
+        }
     }
 
     public void AddPlayer(PlayerController player)
     {
-        players.Add(player);
+        this.Players.Add(player);
     }
 
     public List<WeaponData> GetAllPlayerWeapons()
     {
-        List<WeaponData> allWeapons = new List<WeaponData>();
-        foreach (var player in players)
+        List<WeaponData> allWeapons = new ();
+        foreach (var player in Players)
         {
             var pItem = player.GetComponent<PlayerItem>();
             if (pItem != null)

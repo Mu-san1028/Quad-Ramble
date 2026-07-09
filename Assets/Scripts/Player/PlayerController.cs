@@ -541,4 +541,10 @@ public class PlayerController : NetworkBehaviour
         float rad = launchAngle * Mathf.Deg2Rad;
         return forward * Mathf.Cos(rad) + Vector3.up * Mathf.Sin(rad);
     }
+
+    public void Despawn()
+    {
+        if (!IsServer) return;
+        NetworkObject.Despawn();
+    }
 }    

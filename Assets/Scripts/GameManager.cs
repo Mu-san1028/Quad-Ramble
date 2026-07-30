@@ -1,4 +1,5 @@
 using UnityEngine;
+using Unity.Netcode;
 
 public class GameManager : MonoBehaviour
 {
@@ -26,6 +27,14 @@ public class GameManager : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
+        if (currentState == GameState.WaitingForPlayers)
+        {
+            if (NetworkManager.Singleton.IsServer && ConnectionContainer.Instance.GetConnectionsNum() >= 4)
+            {
+                currentState = GameState.Countdown;
+                NetworkManager.Singleton.SceneManager.LoadScene("PlayerSpawn", UnityEngine.SceneManagement.LoadSceneMode.Single);
+            }
+        }
         if (currentState == GameState.Playing)
         {
             timeLimit -= Time.deltaTime;

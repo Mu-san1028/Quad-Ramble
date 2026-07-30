@@ -40,21 +40,21 @@ public class ConnectionContainer : NetworkBehaviour
         }
     }
 
-    public void Append(ulong clientId)
+    public void Append(ulong clientId, string name)
     {
-        this.AppendServerRpc(clientId);
+        this.AppendServerRpc(clientId, name);
     }
     
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
-    private void AppendServerRpc(ulong clientId)
+    private void AppendServerRpc(ulong clientId, string name)
     {
-        this.AppendClientRpc(clientId);
+        this.AppendClientRpc(clientId, name);
     }
 
     [ClientRpc]
-    private void AppendClientRpc(ulong clientId)
+    private void AppendClientRpc(ulong clientId, string name)
     {
-        this.connections.Add(new Connection((ulong)this.connections.Count, clientId));
+        this.connections.Add(new Connection((ulong)this.connections.Count, clientId) { Name = name });
     }
 
     public int GetConnectionsNum()

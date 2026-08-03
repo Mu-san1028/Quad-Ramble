@@ -3,13 +3,14 @@ using Unity.Netcode;
 
 public class GameManager : MonoBehaviour
 {
-    private GameState currentState = GameState.WaitingForPlayers;
+    public GameState currentState = GameState.WaitingForPlayers;
     public static GameManager Instance { get; private set; }
     [SerializeField] private float timeLimit = 90f;
     // Start is called once before the first execution of Update after the MonoBehaviour is created
-    void Start()
+    public void SetState(GameState newState)
     {
-        
+        if (!NetworkManager.Singleton.IsServer) return; // サーバーのみがこの処理を行う
+        currentState = newState;
     }
     void Awake()
     {
@@ -32,7 +33,7 @@ public class GameManager : MonoBehaviour
             if (NetworkManager.Singleton.IsServer && ConnectionContainer.Instance.GetConnectionsNum() >= 4)
             {
                 currentState = GameState.Countdown;
-                NetworkManager.Singleton.SceneManager.LoadScene("PlayerSpawn", UnityEngine.SceneManagement.LoadSceneMode.Single);
+                NetworkManager.Singleton.SceneManager.LoadScene("StageA", UnityEngine.SceneManagement.LoadSceneMode.Single);
             }
         }
         if (currentState == GameState.Playing)

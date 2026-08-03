@@ -3,6 +3,7 @@ using UnityEngine.InputSystem;
 using System.Collections;
 using Unity.Cinemachine;
 using Unity.Netcode;
+using Unity.Netcode.Components;
 
 /// <summary>
 /// プレイヤーの移動、ジャンプ、慣性、カメラの処理を管理
@@ -31,6 +32,9 @@ public class PlayerController : NetworkBehaviour
 
     private PlayerItem playerItem;
 
+    private bool isEliminated = false;
+    public bool IsControllable => (IsOwner || this.allowOfflineControl) && !isEliminated;
+
     [Header("カメラの透明化設定")]
     public Camera mainUnityCamera;      // 実際のカメラ機能
     public LayerMask defaultCameraMask; // 普段の視力（全部見える）
@@ -54,9 +58,7 @@ public class PlayerController : NetworkBehaviour
     }
 
     // GMなどの別のスクリプトから、player.currentMoveMode = MoveMode.WorldAbsolute; のようにして、移動モードを切り替えることができる。
-    public MoveMode CurrentMoveMode { get; set; } = MoveMode.WorldAbsolute;
-
-    private bool IsControllable => IsOwner || this.allowOfflineControl;
+    public MoveMode CurrentMoveMode { get; set; } = MoveMode.CameraRelative;
 
     // ネットワーク上にこのキャラが生成された時に1回だけ呼ばれるメソッド
     public override void OnNetworkSpawn()
@@ -78,16 +80,7 @@ public class PlayerController : NetworkBehaviour
         }
         else
         {
-            var followCamObj = GameObject.FindWithTag("FollowCamera");
-            if (followCamObj != null)
-            {
-                var followCam = followCamObj.GetComponent<CinemachineCamera>();
-                if (followCam != null)
-                {
-                    followCam.Follow = transform;
-                    followCam.LookAt = transform;
-                }
-            }
+            mainCamera = Camera.main.transform;
         }
     }
 
@@ -95,16 +88,85 @@ public class PlayerController : NetworkBehaviour
     {
         this.controller = GetComponent<CharacterController>();
         this.playerItem = GetComponent<PlayerItem>();
+    }
 
-        // オーナーじゃなかったら、カメラの設定をスキップする
+    void OnEnable()
+    {
+        UnityEngine.SceneManagement.SceneManager.sceneLoaded += RefreshMainCamera;
+    }
+    void OnDisable()
+    {
+        UnityEngine.SceneManagement.SceneManager.sceneLoaded -= RefreshMainCamera;
+    }
+    private void RefreshMainCamera(UnityEngine.SceneManagement.Scene scene, UnityEngine.SceneManagement.LoadSceneMode mode)
+    {
+        if (!IsOwner) return;
+        // シーンが切り替わったら、メインカメラを再取得する
+        mainCamera = Camera.main.transform;
+
+        var followCamObj = GameObject.FindWithTag("FollowCamera");
+        if (followCamObj != null)
+        {
+            var followCam = followCamObj.GetComponent<CinemachineCamera>();
+            if (followCam != null)
+            {
+                followCam.Follow = transform;
+                followCam.LookAt = transform;
+            }
+        }
+    }
+
+    public void Eliminate()
+    {
+        if (!IsServer) return;
+        EliminateClientRpc();
+    }
+
+    [ClientRpc]
+    private void EliminateClientRpc()
+    {
+        isEliminated = true;
+        Debug.Log($"【{gameObject.name}】が脱落しました！");
+        controller.enabled = false;
+        // キャラクターを非表示にする
+        gameObject.GetComponentInChildren<Renderer>().enabled = false;
+    }
+
+    public void Revive()
+    {
+        if (!IsServer) return;
+        ReviveClientRpc();
+    }
+
+    [ClientRpc]
+    private void ReviveClientRpc()
+    {
+        isEliminated = false;
+        controller.enabled = true;
+        // キャラクターを表示する
+        gameObject.GetComponentInChildren<Renderer>().enabled = true;
+    }
+
+    public void Teleport(Vector3 position, Quaternion rotation)
+    {
+        if (!IsServer) return;
+        TeleportClientRpc(position, rotation);
+    }
+
+    [ClientRpc]
+    private void TeleportClientRpc(Vector3 position, Quaternion rotation)
+    {
         if (!IsOwner) return;
 
-        // メインカメラが設定されていなければ、自動でシーン内のMain Cameraを探す
-        if (mainCamera == null)
-        {
-            mainCamera = Camera.main.transform;
-        }
+        // CharacterControllerが有効なままだと座標の直接代入が打ち消されるので一時的に切る
+        controller.enabled = false;
+        transform.SetPositionAndRotation(position, rotation);
+        GetComponent<NetworkTransform>().Teleport(position, rotation, transform.localScale);
+        controller.enabled = true;
 
+        // 速度もリセット
+        velocity = Vector3.zero;
+        impact = Vector3.zero;
     }
 
     void OnJump(InputValue value)
@@ -540,11 +602,5 @@ public class PlayerController : NetworkBehaviour
 
         float rad = launchAngle * Mathf.Deg2Rad;
         return forward * Mathf.Cos(rad) + Vector3.up * Mathf.Sin(rad);
-    }
-
-    public void Despawn()
-    {
-        if (!IsServer) return;
-        NetworkObject.Despawn();
     }
 }    

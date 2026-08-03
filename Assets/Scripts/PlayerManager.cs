@@ -7,7 +7,10 @@ using UnityEngine;
 public class PlayerManager : MonoBehaviour
 {
     public static PlayerManager Instance { get; private set; }
+    // 全プレイヤーのリストと、残っているプレイヤーのリストを保持する。脱落順のプレイヤーも
+    public List<PlayerController> AllPlayers { get; private set; } = new ();
     public List<PlayerController> Players { get; private set; } = new ();
+    public List<PlayerController> EliminatedPlayers { get; private set; } = new ();
 
     void Awake()
     {
@@ -25,8 +28,12 @@ public class PlayerManager : MonoBehaviour
 
     public void DropOut(PlayerController player)
     {
+        if (!Players.Contains(player)) return;
+        
         this.Players.Remove(player);
         Debug.Log("残り人数: " + this.Players.Count);
+        // 脱落したプレイヤーをリストに追加
+        EliminatedPlayers.Add(player);
         
         if (this.Players.Count <= 1)
         {
@@ -37,13 +44,14 @@ public class PlayerManager : MonoBehaviour
 
     public void AddPlayer(PlayerController player)
     {
+        this.AllPlayers.Add(player);
         this.Players.Add(player);
     }
 
     public List<WeaponData> GetAllPlayerWeapons()
     {
         List<WeaponData> allWeapons = new ();
-        foreach (var player in Players)
+        foreach (var player in AllPlayers)
         {
             var pItem = player.GetComponent<PlayerItem>();
             if (pItem != null)
@@ -60,5 +68,11 @@ public class PlayerManager : MonoBehaviour
             }
         }
         return allWeapons;
+    }
+
+    public void ResetPlayers()
+    {
+        EliminatedPlayers.Clear();
+        Players = new List<PlayerController>(AllPlayers);
     }
 }

@@ -26,6 +26,9 @@ public class ConnectionContainer : NetworkBehaviour
 {
     public static ConnectionContainer Instance { get; private set; }
     private readonly List<Connection> connections = new();
+    public event System.Action<int> OnConnectionsChanged;
+    private int connectionsSum = 0;
+
 
     private void Awake()
     {
@@ -48,13 +51,15 @@ public class ConnectionContainer : NetworkBehaviour
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     private void AppendServerRpc(ulong clientId, string name)
     {
-        this.AppendClientRpc(clientId, name);
+        this.connectionsSum++;
+        this.AppendClientRpc(clientId, name, this.connectionsSum);
     }
 
     [ClientRpc]
-    private void AppendClientRpc(ulong clientId, string name)
+    private void AppendClientRpc(ulong clientId, string name, int connectionsSum)
     {
         this.connections.Add(new Connection((ulong)this.connections.Count, clientId) { Name = name });
+        OnConnectionsChanged?.Invoke(connectionsSum);
     }
 
     public int GetConnectionsNum()

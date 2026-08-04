@@ -8,7 +8,6 @@ public class RoundManager : MonoBehaviour
     public static RoundManager Instance { get; private set; }
     private TimerUI timerUI;         // タイマーと紐付け
     private PlayerSpawner playerSpawner; // プレイヤーをスポーンさせるためのスクリプト
-    [SerializeField] private string nextSceneName;      // 次のシーン名
     private bool isRoundOver = false;
     private readonly WaitForSeconds beforeSceneTransition = new (3);
 
@@ -62,12 +61,13 @@ public class RoundManager : MonoBehaviour
     {
         this.isRoundOver = true;
         GameManager.Instance.SetState(GameState.Countdown);
+        AwardPoints();
         Debug.Log(message);
 
         yield return this.beforeSceneTransition;
 
         if (!NetworkManager.Singleton.IsServer) yield break;
-        NetworkManager.Singleton.SceneManager.LoadScene(this.nextSceneName, LoadSceneMode.Single);
+        GameManager.Instance.LoadNextScene();
     }
 
     private IEnumerator CountdownRoutine()
@@ -81,5 +81,23 @@ public class RoundManager : MonoBehaviour
         }
 
         GameManager.Instance.SetState(GameState.Playing);
+    }
+
+    private void AwardPoints()
+    {
+        if (!NetworkManager.Singleton.IsServer) return; // サーバーのみがこの処理を行う
+        var ranking = PlayerManager.Instance.GetRanking();
+        int rank = 1;
+
+        foreach (var players in ranking)
+        {
+            int points = GameManager.Instance.GetPointsForRank(rank);
+            foreach (var player in players)
+            {
+                var connection = ConnectionContainer.Instance.GetConnection(player.OwnerClientId);
+                connection?.AddScore(points);
+            }
+            rank += players.Count;
+        }
     }
 }

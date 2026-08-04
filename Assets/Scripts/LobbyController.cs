@@ -9,23 +9,31 @@ public class LobbyController : MonoBehaviour
     [SerializeField]
     private TextMeshProUGUI matchingText;
 
-    // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
     {
         NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnected;
-        ConnectionContainer.Instance.OnConnectionsChanged += UpdateMatchingText;
-        UpdateMatchingText(0);
+        ConnectionContainer.OnInstanceReady += HandleContainerReady;
+        if (ConnectionContainer.Instance != null)
+        {
+            HandleContainerReady(ConnectionContainer.Instance);
+        }
+    }
+
+    private void HandleContainerReady(ConnectionContainer container)
+    {
+        container.OnConnectionsChanged += UpdateMatchingText;
     }
 
     void OnDestroy()
     {
-        if (NetworkManager.Singleton != null)
-        {
-            NetworkManager.Singleton.OnClientConnectedCallback -= OnClientConnected;
-        }
+        ConnectionContainer.OnInstanceReady -= HandleContainerReady;
         if (ConnectionContainer.Instance != null)
         {
             ConnectionContainer.Instance.OnConnectionsChanged -= UpdateMatchingText;
+        }
+        if (NetworkManager.Singleton != null)
+        {
+            NetworkManager.Singleton.OnClientConnectedCallback -= OnClientConnected;
         }
     }
 
@@ -35,6 +43,7 @@ public class LobbyController : MonoBehaviour
 
         string playerName = string.IsNullOrEmpty(playerNameInput.text) ? "Player" : playerNameInput.text;
         ConnectionContainer.Instance.Append(clientId, playerName);
+        matchingText.gameObject.SetActive(true);
     }
 
     private void UpdateMatchingText(int playerCount)

@@ -26,20 +26,21 @@ public class ConnectionContainer : NetworkBehaviour
 {
     public static ConnectionContainer Instance { get; private set; }
     private readonly List<Connection> connections = new();
+    public IReadOnlyList<(string Name, int Score)> Result {get; private set;} = new List<(string Name, int Score)>();
     public event System.Action<int> OnConnectionsChanged;
+    public event System.Action OnResultsReceived;
+    public static event System.Action<ConnectionContainer> OnInstanceReady;
     private int connectionsSum = 0;
-
-
-    private void Awake()
+    public override void OnNetworkSpawn()
     {
-        if (Instance != null)
+        Instance = this;
+        OnInstanceReady?.Invoke(this);
+    }
+    public override void OnNetworkDespawn()
+    {
+        if (Instance == this)
         {
-            Debug.LogError("ConnectionContainer follows the singleton pattern.");
-            Destroy(this.gameObject);
-        }
-        else
-        {
-            Instance = this;
+            Instance = null;
         }
     }
 
@@ -67,9 +68,33 @@ public class ConnectionContainer : NetworkBehaviour
         return this.connections.Count;
     }
 
+    public Connection GetConnection(ulong id)
+    {
+        return this.connections.Find(c => c.ClientId == id);
+    }
+
     public int GetRank(ulong id)
     {
         List<(Connection, int)> sorted = this.connections.OrderBy(c => c.Score).Select((c, i) => (c, i)).ToList();
         return sorted.Find(pair => pair.Item1.Id == id).Item2 + 1;
+    }
+
+    public void BroadcastFinalScores()
+    {
+        if (!IsServer) return; // サーバーのみがこの処理を行う
+        var entries = this.connections
+            .Select(e => new ResultEntry { Name = e.Name, Score = e.Score })
+            .ToArray();
+        BroadcastFinalScoresClientRpc(entries);
+    }
+
+    [ClientRpc]
+    private void BroadcastFinalScoresClientRpc(ResultEntry[] entries)
+    {
+        Result = entries
+            .Select(e => (e.Name.ToString(), e.Score))
+            .OrderByDescending(e => e.Item2)
+            .ToList();
+        OnResultsReceived?.Invoke();
     }
 }

@@ -70,6 +70,24 @@ public class PlayerManager : MonoBehaviour
         return allWeapons;
     }
 
+    public List<List<PlayerController>> GetRanking()
+    {
+        var ranking = new List<List<PlayerController>>();
+        
+        if (Players.Count > 0)
+        {
+            // 残っているプレイヤーを1位として追加
+            ranking.Add(new List<PlayerController>(Players));
+        }
+
+        for (int i = EliminatedPlayers.Count - 1; i >= 0; i--)
+        {
+            // 脱落したプレイヤーを脱落順に追加
+            ranking.Add(new List<PlayerController> { EliminatedPlayers[i] });
+        }
+        return ranking;
+    }
+
     public void ResetPlayers()
     {
         EliminatedPlayers.Clear();

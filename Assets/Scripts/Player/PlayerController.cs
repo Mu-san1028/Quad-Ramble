@@ -132,6 +132,18 @@ public class PlayerController : NetworkBehaviour
         gameObject.GetComponentInChildren<Renderer>().enabled = false;
     }
 
+    public void StopOrMovePlayer(bool movable)
+    {
+        if (!IsServer) return;
+        StopOrMovePlayerClientRpc(movable);
+    }
+
+    [ClientRpc]
+    private void StopOrMovePlayerClientRpc(bool movable)
+    {
+        controller.enabled = movable;
+    }
+
     public void Revive()
     {
         if (!IsServer) return;
@@ -220,6 +232,9 @@ public class PlayerController : NetworkBehaviour
 
     void Update()
     {
+        // controller が null、または無効化されている場合は処理しない
+        if (controller == null || !controller.enabled) return;
+
         if (!this.IsControllable) return;
 
         #region カメラ相対移動の計算

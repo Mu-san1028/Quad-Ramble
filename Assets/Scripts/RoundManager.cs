@@ -2,10 +2,12 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using System.Collections;
 using Unity.Netcode;
+using TMPro;
 
 public class RoundManager : MonoBehaviour
 {
     public static RoundManager Instance { get; private set; }
+    private TextMeshProUGUI countdownText; // カウントダウン表示用のテキスト
     private TimerUI timerUI;         // タイマーと紐付け
     private PlayerSpawner playerSpawner; // プレイヤーをスポーンさせるためのスクリプト
     private bool isRoundOver = false;
@@ -25,6 +27,21 @@ public class RoundManager : MonoBehaviour
 
         this.playerSpawner = FindAnyObjectByType<PlayerSpawner>();
         this.timerUI = FindAnyObjectByType<TimerUI>();
+        if (this.countdownText == null)// CountdownTextがまだ割り当てられていない場合、シーン内で探す
+        {
+            var textObj = GameObject.Find("CountdownText");
+            if (textObj != null)
+            {
+                this.countdownText = textObj.GetComponent<TextMeshProUGUI>();
+            }
+        }
+
+        //Titleのsceneにあるときはカウントダウンしなくてよいのでその場合の処理
+        if (SceneManager.GetActiveScene().name == "Title")
+        {
+            return;
+        }
+
 
         if(!NetworkManager.Singleton.IsServer) return;
         GameManager.Instance.SetState(GameState.Countdown);
@@ -72,12 +89,36 @@ public class RoundManager : MonoBehaviour
 
     private IEnumerator CountdownRoutine()
     {
+        foreach (var player in PlayerManager.Instance.Players)// プレイヤーを一時的に停止させる
+        {
+            player.StopOrMovePlayer(false);
+        }
+
+        if (this.countdownText != null)
+        {
+            this.countdownText.gameObject.SetActive(true);
+        }
+        else
+        {
+            Debug.LogWarning("CountdownText is not assigned.");
+        }
+
         float remaining = 3f;
         while (remaining > 0f)
         {
             // ここがカウントダウンUI担当の人の差し込み口（残り秒数を配信する）
             remaining -= Time.deltaTime;
+            this.countdownText.text = Mathf.CeilToInt(remaining).ToString();
             yield return null;
+        }
+
+        this.countdownText.text = "Start!";
+        yield return new WaitForSeconds(1f);
+        this.countdownText.gameObject.SetActive(false);
+
+        foreach (var player in PlayerManager.Instance.Players)// プレイヤーを再開させる
+        {
+            player.StopOrMovePlayer(true);
         }
 
         GameManager.Instance.SetState(GameState.Playing);

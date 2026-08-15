@@ -1,72 +1,87 @@
 using UnityEngine;
-using UnityEngine.SceneManagement;
 using System.Collections;
 using Unity.Netcode;
-using TMPro;
 
-public class RoundManager : MonoBehaviour
+public class RoundManager : NetworkBehaviour
 {
     public static RoundManager Instance { get; private set; }
-    private TextMeshProUGUI countdownText; // カウントダウン表示用のテキスト
-    private TimerUI timerUI;         // タイマーと紐付け
-    private PlayerSpawner playerSpawner; // プレイヤーをスポーンさせるためのスクリプト
+
+    [Header("ラウンド設定")]
+    [SerializeField] private float roundDuration = 90f;     // このステージの制限時間
+    [SerializeField] private float countdownDuration = 4f;  // 3・2・1・Start! の合計
+
+    private PlayerSpawner playerSpawner;
     private bool isRoundOver = false;
     private readonly WaitForSeconds beforeSceneTransition = new (3);
 
-    void Start()
+    // サーバーだけが書き込み、全員が読む
+    private readonly NetworkVariable<float> remainingTime = new ();
+    private readonly NetworkVariable<float> countdownRemaining = new ();
+
+    public float RemainingTime => this.remainingTime.Value;
+    public float RoundDuration => this.roundDuration;
+    public float CountdownRemaining => this.countdownRemaining.Value;
+
+    public override void OnNetworkSpawn()
     {
-        if (Instance == null)
-        {
-            Instance = this;
-        }
-        else
-        {
-            Debug.LogWarning("RoundManager follows singleton pattern!");
-            Destroy(gameObject);
-        }
+        Instance = this;
+
+        if (!IsServer) return;
 
         this.playerSpawner = FindAnyObjectByType<PlayerSpawner>();
-        this.timerUI = FindAnyObjectByType<TimerUI>();
-        if (this.countdownText == null)// CountdownTextがまだ割り当てられていない場合、シーン内で探す
-        {
-            var textObj = GameObject.Find("CountdownText");
-            if (textObj != null)
-            {
-                this.countdownText = textObj.GetComponent<TextMeshProUGUI>();
-            }
-        }
 
-        //Titleのsceneにあるときはカウントダウンしなくてよいのでその場合の処理
-        if (SceneManager.GetActiveScene().name == "Title")
-        {
-            return;
-        }
-
-
-        if(!NetworkManager.Singleton.IsServer) return;
         GameManager.Instance.SetState(GameState.Countdown);
         PlayerManager.Instance.ResetPlayers();
+
         var activePlayers = PlayerManager.Instance.Players;
         for (int i = 0; i < activePlayers.Count; i++)
         {
             this.playerSpawner.SpawnPlayer(activePlayers[i], i);
+            activePlayers[i].StopOrMovePlayer(false);
         }
 
-        StartCoroutine(this.CountdownRoutine());
+        this.remainingTime.Value = this.roundDuration;
+        this.countdownRemaining.Value = this.countdownDuration;
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        if (Instance == this) Instance = null;
     }
 
     void Update()
     {
-        if (this.isRoundOver) return;
+        if (!IsServer || this.isRoundOver) return;
 
-        // タイマーが0になったらラウンド終了
-        // サーバー側でのみ処理する
-        if (timerUI != null && timerUI.GetCurrentTime() <= 0 && NetworkManager.Singleton.IsServer) 
+        // カウントダウン中はラウンド時間を減らさない
+        if (this.countdownRemaining.Value > 0f)
         {
-            StartCoroutine(EndRoundRoutine("タイムアップ！"));
+            this.countdownRemaining.Value -= Time.deltaTime;
+            if (this.countdownRemaining.Value <= 0f)
+            {
+                this.countdownRemaining.Value = 0f;
+                this.StartPlaying();
+            }
+            return;
+        }
+
+        this.remainingTime.Value -= Time.deltaTime;
+        if (this.remainingTime.Value <= 0f)
+        {
+            this.remainingTime.Value = 0f;
+            StartCoroutine(this.EndRoundRoutine("タイムアップ！"));
         }
     }
 
+    private void StartPlaying()
+    {
+        foreach (var player in PlayerManager.Instance.Players)
+        {
+            player.StopOrMovePlayer(true);
+        }
+        GameManager.Instance.SetState(GameState.Playing);
+    }
+    
     public void EndRound()
     {
         if (this.isRoundOver) return;
@@ -78,55 +93,18 @@ public class RoundManager : MonoBehaviour
     {
         this.isRoundOver = true;
         GameManager.Instance.SetState(GameState.Countdown);
-        AwardPoints();
+        this.AwardPoints();
         Debug.Log(message);
 
         yield return this.beforeSceneTransition;
 
-        if (!NetworkManager.Singleton.IsServer) yield break;
+        if (!IsServer) yield break;
         GameManager.Instance.LoadNextScene();
-    }
-
-    private IEnumerator CountdownRoutine()
-    {
-        foreach (var player in PlayerManager.Instance.Players)// プレイヤーを一時的に停止させる
-        {
-            player.StopOrMovePlayer(false);
-        }
-
-        if (this.countdownText != null)
-        {
-            this.countdownText.gameObject.SetActive(true);
-        }
-        else
-        {
-            Debug.LogWarning("CountdownText is not assigned.");
-        }
-
-        float remaining = 3f;
-        while (remaining > 0f)
-        {
-            // ここがカウントダウンUI担当の人の差し込み口（残り秒数を配信する）
-            remaining -= Time.deltaTime;
-            this.countdownText.text = Mathf.CeilToInt(remaining).ToString();
-            yield return null;
-        }
-
-        this.countdownText.text = "Start!";
-        yield return new WaitForSeconds(1f);
-        this.countdownText.gameObject.SetActive(false);
-
-        foreach (var player in PlayerManager.Instance.Players)// プレイヤーを再開させる
-        {
-            player.StopOrMovePlayer(true);
-        }
-
-        GameManager.Instance.SetState(GameState.Playing);
     }
 
     private void AwardPoints()
     {
-        if (!NetworkManager.Singleton.IsServer) return; // サーバーのみがこの処理を行う
+        if (!IsServer) return; // サーバーのみがこの処理を行う
         var ranking = PlayerManager.Instance.GetRanking();
         int rank = 1;
 

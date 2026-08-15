@@ -1,15 +1,12 @@
 using UnityEngine;
 using Unity.Netcode;
-using System.Collections;
-using TMPro;
 
 public class GameManager : MonoBehaviour
 {
     public GameState currentState = GameState.WaitingForPlayers;
     public static GameManager Instance { get; private set; }
-    [SerializeField] private float timeLimit = 90f;
     [SerializeField] private int[] rankPoints = new int[] { 10, 7, 5, 3 };
-    [SerializeField] private string[] stageNames = new string[] { "StageA", "StageB", "StageC" };
+    [SerializeField] private string[] stageNames = new string[] { "RoundA", "RoundB", "RoundC" };
     [SerializeField] private string resultSceneName = "ResultScene";
     // 開始済みラウンド数
     public int CurrentRound { get; private set; } = 0;
@@ -18,15 +15,7 @@ public class GameManager : MonoBehaviour
         if (!NetworkManager.Singleton.IsServer) return; // サーバーのみがこの処理を行う
         currentState = newState;
     }
-    private float countdownTime = 3f;// カウントダウンの時間
-    private int countdownCounter;// カウントダウンを画面に表示する用の整数
-    [SerializeField] private TextMeshProUGUI countdownText; // カウントダウンを表示するテキスト
-    // Start is called once before the first execution of Update after the MonoBehaviour is created
-    void Start()
-    {
-        countdownCounter = (int)countdownTime;
-        countdownText.text = countdownCounter.ToString();
-    }
+    
     void Awake()
     {
         if (Instance == null)
@@ -51,24 +40,6 @@ public class GameManager : MonoBehaviour
             {
                 currentState = GameState.Countdown;
                 LoadNextScene();
-            }
-        }
-        if (currentState == GameState.Playing)
-        {
-            timeLimit -= Time.deltaTime;
-            if (timeLimit <= 0f)
-            {
-                // タイムアップの処理
-            }
-        }
-
-        if (currentState == GameState.Countdown)
-        {
-            // カウントダウンの処理
-            countdownTime -= Time.deltaTime;
-            if (countdownTime <= 0f)
-            {
-                currentState = GameState.Playing;
             }
         }
     }

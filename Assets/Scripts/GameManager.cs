@@ -29,24 +29,25 @@ public class GameManager : MonoBehaviour
         }
     }
 
-    // Update is called once per frame
     void Update()
     {
-        if (currentState == GameState.WaitingForPlayers)
+        if (currentState != GameState.WaitingForPlayers) return;
+        if (NetworkManager.Singleton == null) return;
+
+        if (NetworkManager.Singleton.IsServer
+            && ConnectionContainer.Instance != null
+            && ConnectionContainer.Instance.GetConnectionsNum() >= 4)
         {
-            if (NetworkManager.Singleton.IsServer 
-                && ConnectionContainer.Instance != null
-                && ConnectionContainer.Instance.GetConnectionsNum() >= 4)
-            {
-                currentState = GameState.Countdown;
-                LoadNextScene();
-            }
+            currentState = GameState.Countdown;
+            LoadNextScene();
         }
     }
+
 
     public void LoadNextScene()
     {
         if (!NetworkManager.Singleton.IsServer) return; // サーバーのみがこの処理を行う
+        if (NetworkManager.Singleton == null) return; 
 
         if (CurrentRound < stageNames.Length)
         {

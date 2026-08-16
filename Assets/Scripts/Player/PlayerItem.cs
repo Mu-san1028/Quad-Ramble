@@ -8,10 +8,10 @@ using Unity.Netcode;
 [RequireComponent(typeof(PlayerController))]
 public class PlayerItem : NetworkBehaviour
 {
+    public static PlayerItem Local { get; private set; }
     [field: SerializeField] public ItemSlot[] Weapons { get; private set; } = new ItemSlot[3];
     private int currentWeaponIndex; // 現在装備している武器
     private PlayerController playerController;
-    private ItemDatabase itemDatabase;
 
     public ItemSlot CurrentWeapon
     {
@@ -26,7 +26,16 @@ public class PlayerItem : NetworkBehaviour
     private void Start()
     {
         this.playerController = GetComponent<PlayerController>();
-        this.itemDatabase = FindFirstObjectByType<ItemDatabase>();
+    }
+
+    public override void OnNetworkSpawn()
+    {
+        if (IsOwner) Local = this;
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        if (Local == this) Local = null;
     }
 
     public void ApplyItem(Items item)
@@ -42,7 +51,7 @@ public class PlayerItem : NetworkBehaviour
     [ClientRpc]
     private void ApplyItemClientRpc(Items item)
     {
-        ItemBase data = this.itemDatabase.GetItem(item);
+        ItemBase data = ItemDatabase.Instance.GetItem(item);
         if (data is ConsumableItemData consumableItem)
         {
             this.ApplyConsumableItem(consumableItem);
@@ -111,6 +120,19 @@ public class PlayerItem : NetworkBehaviour
                 break;
             }
         }
+    }
+
+    public void DiscardIfEmpty()
+    {
+        ItemSlot slot = this.CurrentWeapon;
+        if (slot == null || slot.itemData == null) return;
+        if (slot.currentAmount > 0) return;
+
+        Debug.Log($"{slot.itemData.itemName} を使い切ったので捨てた");
+        this.Weapons[this.currentWeaponIndex] = null;
+
+        // 他に武器が残っていれば自動で持ち替える（SwitchWeapon は空スロットを飛ばす）
+        this.SwitchWeapon(1);
     }
 
     private void EquipWeapon(int index)

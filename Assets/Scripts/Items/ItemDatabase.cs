@@ -39,8 +39,11 @@ public class ItemDatabase : MonoBehaviour
         else
         {
             ItemDatabase.Instance = this;
+            DontDestroyOnLoad(this.gameObject);
         }
     }
 
     public ItemBase GetItem(Items key) => this.items.First(entry => entry.key == key).value;
+    public Items GetKey(ItemBase data) => this.items.First(e => e.value == data).key;
+
 }

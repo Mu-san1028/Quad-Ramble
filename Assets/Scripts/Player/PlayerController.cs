@@ -361,6 +361,12 @@ public class PlayerController : NetworkBehaviour
             return;
         }
 
+        this.FireCurrentWeapon();
+        this.playerItem.DiscardIfEmpty();
+    }
+
+    private void FireCurrentWeapon()
+    {
         var currentSlot = this.playerItem.CurrentWeapon;
         PlayShootEffectLocal();
 
@@ -386,16 +392,16 @@ public class PlayerController : NetworkBehaviour
         // bulletPrefab があれば投擲
         if (weaponData != null && weaponData.bulletPrefab != null)
         {
-            int weaponSlotIndex = this.playerItem.CurrentWeaponIndex;
+            Items weaponKey = ItemDatabase.Instance.GetKey(weaponData);
             Vector3 startPos = transform.position + Vector3.forward * 0.5f;
             Vector3 throwDir = GetThrowDirection(weaponData.launchAngle);
-            ThrowProjectileServerRpc(startPos, throwDir * weaponData.throwSpeed, weaponSlotIndex);
+            ThrowProjectileServerRpc(startPos, throwDir * weaponData.throwSpeed, weaponKey);
             return;
         }
 
 
         // attackRange なし → 既存の Raycast 処理
-        Ray ray = new Ray(mainUnityCamera.transform.position, mainUnityCamera.transform.forward);
+        Ray ray = new Ray(mainCamera.position, mainCamera.forward);
 
         if (Physics.Raycast(ray, out RaycastHit hit, shootRange, shootableLayers))
         {
@@ -465,9 +471,9 @@ public class PlayerController : NetworkBehaviour
     }
 
     [ServerRpc]
-    void ThrowProjectileServerRpc(Vector3 startPos, Vector3 initialVelocity, int weaponSlotIndex)
+    void ThrowProjectileServerRpc(Vector3 startPos, Vector3 initialVelocity, Items weaponKey)
     {
-        var wd = playerItem.Weapons[weaponSlotIndex]?.itemData as WeaponData;
+        var wd = ItemDatabase.Instance.GetItem(weaponKey) as WeaponData;
         float power = wd?.Power ?? 10f;
         float blastRadius = wd?.blastRadius ?? 3f;
         float gravity = wd?.gravityScale ?? 9.8f;
@@ -475,9 +481,10 @@ public class PlayerController : NetworkBehaviour
         Vector3 landing = SimulateTrajectory(startPos, initialVelocity, gravity, out float flightTime);
         Debug.Log($"[Throw] landing: {landing}, flightTime: {flightTime}, power: {power}, blastRadius: {blastRadius}");
 
-        ShowProjectileClientRpc(startPos, initialVelocity, flightTime, gravity, weaponSlotIndex);
+        ShowProjectileClientRpc(startPos, initialVelocity, flightTime, gravity, weaponKey);
         StartCoroutine(ExplodeAfterDelay(landing, flightTime, blastRadius, power));
     }
+
 
     private Vector3 SimulateTrajectory(Vector3 start, Vector3 vel, float gravity, out float flightTime)
     {
@@ -509,9 +516,9 @@ public class PlayerController : NetworkBehaviour
     }
 
     [ClientRpc]
-    void ShowProjectileClientRpc(Vector3 startPos, Vector3 initialVelocity, float flightTime, float gravity, int weaponSlotIndex)
+    void ShowProjectileClientRpc(Vector3 startPos, Vector3 initialVelocity, float flightTime, float gravity, Items weaponKey)
     {
-        var wd = playerItem.Weapons[weaponSlotIndex]?.itemData as WeaponData;
+        var wd = ItemDatabase.Instance.GetItem(weaponKey) as WeaponData;
         if (wd?.bulletPrefab == null) return;
         StartCoroutine(AnimateProjectile(wd.bulletPrefab, startPos, initialVelocity, flightTime, gravity));
     }
@@ -524,6 +531,7 @@ public class PlayerController : NetworkBehaviour
 
         while (elapsed < duration)
         {
+            if (obj == null) yield break;
             elapsed += Time.deltaTime;
             Vector3 pos = start + vel * elapsed;
             pos.y -= 0.5f * gravity * elapsed * elapsed;
@@ -537,6 +545,8 @@ public class PlayerController : NetworkBehaviour
     private IEnumerator ExplodeAfterDelay(Vector3 center, float delay, float radius, float power)
     {
         yield return new WaitForSeconds(delay);
+        if (!IsSpawned) yield break; // プレイヤーが脱落している場合は爆発しない
+        if (GameManager.Instance.currentState != GameState.Playing) yield break; // ゲームが終了している場合は爆発しない
         ExplosionClientRpc(center, radius, power);
     }
 
@@ -608,7 +618,7 @@ public class PlayerController : NetworkBehaviour
 
     private Vector3 GetThrowDirection(float launchAngle)
     {
-        Vector3 forward = (mainUnityCamera != null) ? mainUnityCamera.transform.forward : transform.forward;
+        Vector3 forward = (mainCamera != null) ? mainCamera.transform.forward : transform.forward;
         forward.y = 0f;
 
         // カメラが真上/真下を向いていて水平成分がほぼ0の場合のフォールバック

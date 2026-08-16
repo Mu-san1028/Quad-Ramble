@@ -10,6 +10,10 @@ public class RoundManager : NetworkBehaviour
     [SerializeField] private float roundDuration = 90f;     // このステージの制限時間
     [SerializeField] private float countdownDuration = 4f;  // 3・2・1・Start! の合計
 
+    [Header("このラウンドに出現するアイテム")]
+    [SerializeField] private Items[] availableItems;
+    public Items[] AvailableItems => this.availableItems;
+
     private PlayerSpawner playerSpawner;
     private bool isRoundOver = false;
     private readonly WaitForSeconds beforeSceneTransition = new (3);

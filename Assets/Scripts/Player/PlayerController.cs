@@ -437,9 +437,22 @@ public class PlayerController : NetworkBehaviour
         // プレイヤーに当たったら、対象者にノックバック命令を出す
         if (targetId != 0)
         {
-            ApplyKnockbackClientRpc(targetId, knockbackForce);
+            ApplyKnockback(targetId, knockbackForce, knockbackForce.magnitude);
         }
     }
+
+    /// <summary>サーバーが最終的なノックバックを決めて対象に適用させる</summary>
+    private void ApplyKnockback(ulong targetId, Vector3 direction, float power)
+    {
+        if (!IsServer) return;
+
+        // TODO: ここに疲労倍率が入る
+        Vector3 force = direction.normalized * power;
+        force.y += power * 0.3f;
+
+        ApplyKnockbackClientRpc(targetId, force);
+    }
+
 
     [ClientRpc]
     void ApplyKnockbackClientRpc(ulong targetId, Vector3 knockbackForce)
@@ -545,30 +558,31 @@ public class PlayerController : NetworkBehaviour
     private IEnumerator ExplodeAfterDelay(Vector3 center, float delay, float radius, float power)
     {
         yield return new WaitForSeconds(delay);
-        if (!IsSpawned) yield break; // プレイヤーが脱落している場合は爆発しない
-        if (GameManager.Instance.currentState != GameState.Playing) yield break; // ゲームが終了している場合は爆発しない
-        ExplosionClientRpc(center, radius, power);
+        if (!IsSpawned) yield break;
+        if (GameManager.Instance.currentState != GameState.Playing) yield break;
+
+        // 演出は全員に
+        ExplosionEffectClientRpc(center, radius);
+
+        // 判定はサーバーだけが行う
+        var hits = Physics.OverlapSphere(center, radius, shootableLayers);
+        foreach (var col in hits)
+        {
+            var target = col.GetComponent<NetworkObject>();
+            if (target == null) continue;
+            if (target.NetworkObjectId == NetworkObjectId) continue;   // 自分は無視
+            if (col.GetComponent<PlayerController>() == null) continue;
+
+            Vector3 direction = (col.transform.position - center).normalized;
+            this.ApplyKnockback(target.NetworkObjectId, direction, power);
+        }
     }
 
     [ClientRpc]
-    void ExplosionClientRpc(Vector3 center, float radius, float power)
+    void ExplosionEffectClientRpc(Vector3 center, float radius)
     {
-        var hits = Physics.OverlapSphere(center, radius, shootableLayers);
-        Debug.Log($"[Explosion] center: {center}, radius: {radius}, hits: {hits.Length}");
-
-        foreach (var col in hits)
-        {
-            var pc = col.GetComponent<PlayerController>();
-            // Debug.Log($"[Explosion] candidate: {col.name}, hasPlayerController: {pc != null}, isOwner: {pc?.IsOwner}");
-
-            if (pc == null || !pc.IsOwner) continue;
-            if (pc.NetworkObjectId == NetworkObjectId) continue;
-
-            Vector3 force = (col.transform.position - center).normalized * power;
-            force.y += power * 0.3f;
-            Debug.Log($"[Explosion] TakeKnockback呼び出し: force={force}");
-            pc.TakeKnockback(force);
-        }
+        // ここに爆発エフェクト・音を書く
+        Debug.Log($"[Explosion] center: {center}, radius: {radius}");
     }
 
     public void TakeKnockback(Vector3 force)

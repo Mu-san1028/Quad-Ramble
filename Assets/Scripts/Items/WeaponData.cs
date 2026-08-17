@@ -1,5 +1,12 @@
 using UnityEngine;
 
+public enum WeaponType
+{
+    Melee, // 近接武器
+    Throw, // 遠距離武器
+    Deployable // 設置型武器
+}
+
 [CreateAssetMenu(fileName = "NewWeapon", menuName = "Items/Weapon")]
 public class WeaponData : ItemBase
 {

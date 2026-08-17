@@ -15,6 +15,7 @@ public enum Items
     Thorn,
     Spear,
     Sword,
+    Landmine,
 }
 
 public class ItemDatabase : MonoBehaviour

@@ -23,6 +23,7 @@ public class PlayerSpawner : MonoBehaviour
         // プレイヤーをスポーンさせる
         player.Teleport(spawnPoint.position, spawnPoint.rotation);
         player.Revive();
+        player.GetComponent<PlayerStatus>()?.ResetForRound();
 
         //　PlayerItemを初期化する
         PlayerItem playerItem = player.GetComponent<PlayerItem>();

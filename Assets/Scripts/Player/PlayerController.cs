@@ -16,6 +16,10 @@ public class PlayerController : NetworkBehaviour
     [SerializeField] private float moveSpeed = 5f; // 基本の移動速度
     [SerializeField] private float acceleration = 20f; // 加速力
     [SerializeField] private float deceleration = 20f; // ブレーキ力
+
+    private float CurrentMoveSpeed  => moveSpeed  + (status != null ? status.SpeedBonus : 0f);
+    private float CurrentJumpHeight => jumpHeight + (status != null ? status.JumpBonus  : 0f);
+    private float CurrentTurnSmoothTime => Mathf.Max(0.02f, turnSmoothTime + (status != null ? status.TurnBonus : 0f));
     private CharacterController controller;
     private Vector2 moveInput;
 
@@ -31,6 +35,7 @@ public class PlayerController : NetworkBehaviour
     private Vector3 velocity;
 
     private PlayerItem playerItem;
+    private PlayerStatus status;
 
     private bool isEliminated = false;
     public bool IsControllable => (IsOwner || this.allowOfflineControl) && !isEliminated;
@@ -88,6 +93,7 @@ public class PlayerController : NetworkBehaviour
     {
         this.controller = GetComponent<CharacterController>();
         this.playerItem = GetComponent<PlayerItem>();
+        this.status = GetComponent<PlayerStatus>();
     }
 
     void OnEnable()
@@ -189,7 +195,7 @@ public class PlayerController : NetworkBehaviour
             // 地面にいればジャンプ
             if (controller.isGrounded)
             {
-                velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
+                velocity.y = Mathf.Sqrt(CurrentJumpHeight * -2f * gravity);
             }
         }
         else
@@ -268,14 +274,14 @@ public class PlayerController : NetworkBehaviour
             float targetAngle = Mathf.Atan2(moveDirection.x, moveDirection.z) * Mathf.Rad2Deg;
             
             // 現在の角度から目標の角度へ、turnSmoothTime秒かけて滑らかに回転させる
-            float angle = Mathf.SmoothDampAngle(transform.eulerAngles.y, targetAngle, ref turnSmoothVelocity, turnSmoothTime);
+            float angle = Mathf.SmoothDampAngle(transform.eulerAngles.y, targetAngle, ref turnSmoothVelocity, CurrentTurnSmoothTime);
             transform.rotation = Quaternion.Euler(0f, angle, 0f);
         }
         #endregion
 
         #region 慣性の計算
         // 目標速度（入力が半分なら速度も半分になるように Mathf.Clamp01 を使用）
-        Vector3 targetVelocity = moveDirection.normalized * moveSpeed * Mathf.Clamp01(moveInput.magnitude);
+        Vector3 targetVelocity = moveDirection.normalized * CurrentMoveSpeed * Mathf.Clamp01(moveInput.magnitude);
         float accelRate = (moveInput.magnitude > 0.01f) ? acceleration : deceleration;
 
         // X軸とZ軸の慣性
@@ -305,32 +311,7 @@ public class PlayerController : NetworkBehaviour
 
         controller.Move(velocity * Time.deltaTime);
     }
-
-    public void ApplyBoost(ConsumableItemData consumable)
-    {
-        StartCoroutine(this.ApplyBoostCoroutine(consumable));
-    }
-
-    private IEnumerator ApplyBoostCoroutine(ConsumableItemData consumable)
-    {
-        float originalSpeed = moveSpeed;
-        float originalJumpHeight = jumpHeight;
-        float originalTurnSpeed = turnSmoothTime;
-
-        // ブーストを適用
-        moveSpeed += consumable.speedBoost;
-        jumpHeight += consumable.jumpBoost;
-        turnSmoothTime -= consumable.turnSpeedBoost;
-
-        // ブーストの効果が切れるまで待機
-        yield return new WaitForSeconds(consumable.duration);
-
-        // 元の値に戻す
-        moveSpeed = originalSpeed;
-        jumpHeight = originalJumpHeight;
-        turnSmoothTime = originalTurnSpeed;
-    }
-
+    
     // Rボタン（Right Shoulder）を押した時：次の武器へ
     void OnNextWeapon(InputValue value)
     {
@@ -388,15 +369,15 @@ public class PlayerController : NetworkBehaviour
             return;
         }
 
+        Items weaponKey = ItemDatabase.Instance.GetKey(weaponData);
         var hits = weaponData.attackRange.GetHitTargets(transform.position, transform.rotation, shootableLayers);
         foreach (var col in hits)
         {
             NetworkObject targetNetObj = col.GetComponent<NetworkObject>();
             if (targetNetObj == null || targetNetObj.NetworkObjectId == NetworkObjectId) continue;
 
-            Vector3 knockbackForce = (col.transform.position - transform.position).normalized * weaponData.Power;
-            knockbackForce.y += weaponData.Power * 0.3f;
-            SubmitShootServerRpc(col.transform.position, targetNetObj.NetworkObjectId, knockbackForce);
+            Vector3 direction = (col.transform.position - transform.position).normalized;
+            SubmitShootServerRpc(col.transform.position, targetNetObj.NetworkObjectId, direction, weaponKey);
         }
     }
 
@@ -423,17 +404,17 @@ public class PlayerController : NetworkBehaviour
     
 
     [ServerRpc]
-    void SubmitShootServerRpc(Vector3 hitPoint, ulong targetId, Vector3 knockbackForce)
+    void SubmitShootServerRpc(Vector3 hitPoint, ulong targetId, Vector3 direction, Items weaponKey)
     {
-        // 全員にエフェクトを再生させる
         PlayShootEffectClientRpc(hitPoint);
+        if (targetId == 0) return;
 
-        // プレイヤーに当たったら、対象者にノックバック命令を出す
-        if (targetId != 0)
-        {
-            ApplyKnockback(targetId, knockbackForce, knockbackForce.magnitude);
-        }
+        var wd = ItemDatabase.Instance.GetItem(weaponKey) as WeaponData;
+        float power = wd != null ? wd.Power : 10f;
+
+        this.ApplyKnockback(targetId, direction, power);
     }
+
 
     /// <summary>サーバーが最終的なノックバックを決めて対象に適用させる</summary>
     private void ApplyKnockback(ulong targetId, Vector3 direction, float power)

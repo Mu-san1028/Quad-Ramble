@@ -12,6 +12,7 @@ public class PlayerItem : NetworkBehaviour
     [field: SerializeField] public ItemSlot[] Weapons { get; private set; } = new ItemSlot[3];
     private int currentWeaponIndex; // 現在装備している武器
     private PlayerController playerController;
+    private PlayerStatus playerStatus;
 
     public ItemSlot CurrentWeapon
     {
@@ -26,6 +27,7 @@ public class PlayerItem : NetworkBehaviour
     private void Start()
     {
         this.playerController = GetComponent<PlayerController>();
+        this.playerStatus = GetComponent<PlayerStatus>();
     }
 
     public override void OnNetworkSpawn()
@@ -62,10 +64,14 @@ public class PlayerItem : NetworkBehaviour
         }
     }
 
-    private void ApplyConsumableItem(ConsumableItemData data) {
+    private void ApplyConsumableItem(ConsumableItemData data)
+    {
+        if (!IsServer) return;
+
         Debug.Log("消費アイテムを取得: " + data.name);
-        this.playerController.ApplyBoost(data);
+        this.playerStatus.AddTemporary(data);
     }
+
 
     private void ApplyWeapon(WeaponData weapon) {
         Debug.Log("武器を取得: " + weapon.name);

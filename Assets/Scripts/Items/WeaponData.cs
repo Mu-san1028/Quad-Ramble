@@ -10,24 +10,25 @@ public enum WeaponType
 [CreateAssetMenu(fileName = "NewWeapon", menuName = "Items/Weapon")]
 public class WeaponData : ItemBase
 {
-    [Header("弾のPrefab")]
-    public GameObject bulletPrefab;
-    [Header("初期の残弾数")]
-    public int bulletStock;
-    [Header("次の攻撃までに必要な時間")]
-    public float reloadTime;
-    [Header("攻撃の強さ")]
-    public float Power;
-    [Header("攻撃するまでの待機時間")]
-    public float attackWindup;
-    [Header("攻撃範囲")]
+    [Header("武器の種別")]
+    public WeaponType weaponType;
+
+    [Header("共通設定")]
+    public int bulletStock;      // 初期の残弾数
+    public float reloadTime;     // 次の攻撃までに必要な時間
+    public float Power;          // 攻撃の強さ
+    public float attackWindup;   // 攻撃するまでの待機時間
+
+    [Header("Melee：攻撃範囲")]
     public AttackRangeData attackRange;
 
-    [Header("投擲設定")]
+    [Header("Throw：弾のPrefabと投擲設定")]
+    public GameObject bulletPrefab;
     public float throwSpeed = 10f;
     public float blastRadius = 3f;
     public float gravityScale = 9.8f;
-    public float launchAngle = 45f; // 投擲の角度
+    public float launchAngle = 45f;
 
-
+    [Header("Deployable：設置するPrefab")]
+    public GameObject deployPrefab;
 }

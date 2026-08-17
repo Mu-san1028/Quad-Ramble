@@ -367,65 +367,59 @@ public class PlayerController : NetworkBehaviour
 
     private void FireCurrentWeapon()
     {
-        var currentSlot = this.playerItem.CurrentWeapon;
+        var weaponData = this.playerItem.CurrentWeapon?.itemData as WeaponData;
+        if (weaponData == null) return;
+
         PlayShootEffectLocal();
 
-        var weaponData = currentSlot?.itemData as WeaponData;
-
-        // attackRange が設定されている → エリア攻撃
-        if (weaponData != null && weaponData.attackRange != null)
+        switch (weaponData.weaponType)
         {
-            var hits = weaponData.attackRange.GetHitTargets(transform.position, transform.rotation, shootableLayers);
-            foreach (var col in hits)
-            {
-                Debug.Log($"検出: {col.gameObject.name}");
-                NetworkObject targetNetObj = col.GetComponent<NetworkObject>();
-                if (targetNetObj == null || targetNetObj.NetworkObjectId == NetworkObjectId) continue;
-
-                Vector3 knockbackForce = (col.transform.position - transform.position).normalized * weaponData.Power;
-                knockbackForce.y += weaponData.Power * 0.3f;
-                SubmitShootServerRpc(col.transform.position, targetNetObj.NetworkObjectId, knockbackForce);
-            }
-            return;
-        }
-
-        // bulletPrefab があれば投擲
-        if (weaponData != null && weaponData.bulletPrefab != null)
-        {
-            Items weaponKey = ItemDatabase.Instance.GetKey(weaponData);
-            Vector3 startPos = transform.position + Vector3.forward * 0.5f;
-            Vector3 throwDir = GetThrowDirection(weaponData.launchAngle);
-            ThrowProjectileServerRpc(startPos, throwDir * weaponData.throwSpeed, weaponKey);
-            return;
-        }
-
-
-        // attackRange なし → 既存の Raycast 処理
-        Ray ray = new Ray(mainCamera.position, mainCamera.forward);
-
-        if (Physics.Raycast(ray, out RaycastHit hit, shootRange, shootableLayers))
-        {
-            NetworkObject targetNetObj = hit.collider.GetComponent<NetworkObject>();
-
-            if (targetNetObj != null)
-            {
-                if (currentSlot != null && currentSlot.itemData is WeaponData wd)
-                {
-                    Vector3 knockbackForce = ray.direction * wd.Power;
-                    knockbackForce.y += wd.Power * 0.3f;
-                    SubmitShootServerRpc(hit.point, targetNetObj.NetworkObjectId, knockbackForce);
-                }
-            }
-            else
-            {
-                SubmitShootServerRpc(hit.point, 0, Vector3.zero);
-            }
-        }
-        else
-        {
-            SubmitShootServerRpc(ray.GetPoint(shootRange), 0, Vector3.zero);
+            case WeaponType.Melee:      this.FireMelee(weaponData);      break;
+            case WeaponType.Throw:      this.FireThrow(weaponData);      break;
+            case WeaponType.Deployable: this.FireDeployable(weaponData); break;
         }
     }
+
+    private void FireMelee(WeaponData weaponData)
+    {
+        if (weaponData.attackRange == null)
+        {
+            Debug.LogWarning($"{weaponData.itemName} は Melee ですが attackRange が未設定です");
+            return;
+        }
+
+        var hits = weaponData.attackRange.GetHitTargets(transform.position, transform.rotation, shootableLayers);
+        foreach (var col in hits)
+        {
+            NetworkObject targetNetObj = col.GetComponent<NetworkObject>();
+            if (targetNetObj == null || targetNetObj.NetworkObjectId == NetworkObjectId) continue;
+
+            Vector3 knockbackForce = (col.transform.position - transform.position).normalized * weaponData.Power;
+            knockbackForce.y += weaponData.Power * 0.3f;
+            SubmitShootServerRpc(col.transform.position, targetNetObj.NetworkObjectId, knockbackForce);
+        }
+    }
+
+    private void FireThrow(WeaponData weaponData)
+    {
+        if (weaponData.bulletPrefab == null)
+        {
+            Debug.LogWarning($"{weaponData.itemName} は Throw ですが bulletPrefab が未設定です");
+            return;
+        }
+
+        Items weaponKey = ItemDatabase.Instance.GetKey(weaponData);
+        Vector3 startPos = transform.position + Vector3.forward * 0.5f;
+        Vector3 throwDir = GetThrowDirection(weaponData.launchAngle);
+        ThrowProjectileServerRpc(startPos, throwDir * weaponData.throwSpeed, weaponKey);
+    }
+
+    private void FireDeployable(WeaponData weaponData)
+    {
+        // TODO: 設置物のスポーン（次のステップで実装）
+        Debug.Log($"{weaponData.itemName} を設置（未実装）");
+    }
+
     
 
     [ServerRpc]

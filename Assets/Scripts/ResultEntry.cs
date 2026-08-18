@@ -12,3 +12,15 @@ public struct ResultEntry : INetworkSerializable
         serializer.SerializeValue(ref Score);
     }
 }
+
+public struct RosterEntry : INetworkSerializable
+{
+    public ulong ClientId;
+    public FixedString64Bytes Name;
+
+    public void NetworkSerialize<T>(BufferSerializer<T> serializer) where T : IReaderWriter
+    {
+        serializer.SerializeValue(ref ClientId);
+        serializer.SerializeValue(ref Name);
+    }
+}

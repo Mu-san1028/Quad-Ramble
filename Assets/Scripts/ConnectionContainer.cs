@@ -30,7 +30,7 @@ public class ConnectionContainer : NetworkBehaviour
     public event System.Action<int> OnConnectionsChanged;
     public event System.Action OnResultsReceived;
     public static event System.Action<ConnectionContainer> OnInstanceReady;
-    private int connectionsSum = 0;
+
     public override void OnNetworkSpawn()
     {
         Instance = this;
@@ -52,16 +52,33 @@ public class ConnectionContainer : NetworkBehaviour
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     private void AppendServerRpc(ulong clientId, string name)
     {
-        this.connectionsSum++;
-        this.AppendClientRpc(clientId, name, this.connectionsSum);
+        // 名簿の追加はサーバーだけが行う
+        this.connections.Add(new Connection((ulong)this.connections.Count, clientId) { Name = name });
+
+        var roster = this.connections
+            .Select(c => new RosterEntry { ClientId = c.ClientId, Name = c.Name })
+            .ToArray();
+        this.SyncRosterClientRpc(roster);
     }
 
     [ClientRpc]
-    private void AppendClientRpc(ulong clientId, string name, int connectionsSum)
+    private void SyncRosterClientRpc(RosterEntry[] roster)
     {
-        this.connections.Add(new Connection((ulong)this.connections.Count, clientId) { Name = name });
-        OnConnectionsChanged?.Invoke(connectionsSum);
+        if (!IsServer)
+        {
+            this.connections.Clear();
+            foreach (var e in roster)
+            {
+                this.connections.Add(new Connection((ulong)this.connections.Count, e.ClientId)
+                {
+                    Name = e.Name.ToString()
+                });
+            }
+        }
+
+        OnConnectionsChanged?.Invoke(this.connections.Count);
     }
+
 
     public int GetConnectionsNum()
     {
@@ -72,6 +89,10 @@ public class ConnectionContainer : NetworkBehaviour
     {
         return this.connections.Find(c => c.ClientId == id);
     }
+
+    /// <summary>表示用の名前。見つからなければ null</summary>
+    public string GetName(ulong clientId) => this.GetConnection(clientId)?.Name;
+
 
     public int GetRank(ulong id)
     {

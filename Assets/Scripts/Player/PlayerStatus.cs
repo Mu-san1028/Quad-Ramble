@@ -17,6 +17,16 @@ public class PlayerStatus : NetworkBehaviour
         public bool IsPermanent;   // ラウンド終了まで消えない
     }
 
+    [Header("疲労設定")]
+    [SerializeField] private float fatiguePerPower = 1.0f;   // 威力1あたりの疲労蓄積量
+    [SerializeField] private float fatigueScale = 0.01f;     // 疲労1あたりの倍率上昇
+
+    private readonly NetworkVariable<float> fatigue = new ();
+    public float Fatigue => this.fatigue.Value;
+
+    /// <summary>ノックバック倍率。疲労が溜まるほど大きくなる</summary>
+    public float KnockbackMultiplier => 1f + this.fatigue.Value * this.fatigueScale;
+
     private readonly List<ActiveEffect> effects = new ();
 
     // サーバーが書き、全員が読む。x=Speed, y=Jump, z=Turn
@@ -47,7 +57,7 @@ public class PlayerStatus : NetworkBehaviour
         if (changed) this.Recalculate();
     }
 
-    /// <summary>一時効果（Consumable アイテム）</summary>
+    /// <summary>一時効果アイテム</summary>
     public void AddTemporary(ConsumableItemData data)
     {
         if (!IsServer) return;
@@ -62,7 +72,7 @@ public class PlayerStatus : NetworkBehaviour
         this.Recalculate();
     }
 
-    /// <summary>恒久強化（ブロック破壊など）。ラウンド終了まで消えない</summary>
+    /// <summary>恒久強化。ラウンド終了まで消えない</summary>
     public void AddPermanent(float speed, float jump, float turn)
     {
         if (!IsServer) return;
@@ -74,12 +84,20 @@ public class PlayerStatus : NetworkBehaviour
         this.Recalculate();
     }
 
+    /// <summary>攻撃を受けたときに疲労を蓄積する（サーバーのみ）</summary>
+    public void AddFatigue(float power)
+    {
+        if (!IsServer) return;
+        this.fatigue.Value += power * this.fatiguePerPower;
+    }
+
     /// <summary>ラウンド開始時にすべて解除する</summary>
     public void ResetForRound()
     {
         if (!IsServer) return;
 
         this.effects.Clear();
+        this.fatigue.Value = 0f;
         this.Recalculate();
     }
 

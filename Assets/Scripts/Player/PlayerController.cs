@@ -90,6 +90,12 @@ public class PlayerController : NetworkBehaviour
         }
     }
 
+    public override void OnNetworkDespawn()
+    {
+        PlayerManager.Instance?.RemovePlayer(this);
+    }
+
+
     void Start()
     {
         this.controller = GetComponent<CharacterController>();

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using Unity.Netcode;
 
 /// <summary>
 /// プレイヤーが脱落したときの処理とか
@@ -35,11 +36,7 @@ public class PlayerManager : MonoBehaviour
         // 脱落したプレイヤーをリストに追加
         EliminatedPlayers.Add(player);
         
-        if (this.Players.Count <= 1)
-        {
-            // プレイヤーが1人になったらラウンド終了
-            RoundManager.Instance.EndRound();
-        }
+        this.CheckRoundEnd();
     }
 
     public void AddPlayer(PlayerController player)
@@ -47,6 +44,28 @@ public class PlayerManager : MonoBehaviour
         this.AllPlayers.Add(player);
         this.Players.Add(player);
     }
+
+    public void RemovePlayer(PlayerController player)
+    {
+        bool wasAlive = this.Players.Remove(player);
+        this.AllPlayers.Remove(player);
+        this.EliminatedPlayers.Remove(player);
+
+        Debug.Log($"プレイヤーが離脱しました。残り人数: {this.Players.Count}");
+
+        if (wasAlive) this.CheckRoundEnd();
+    }
+
+    private void CheckRoundEnd()
+    {
+        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer) return;
+        if (NetworkManager.Singleton.ShutdownInProgress) return;
+        if (GameManager.Instance == null || GameManager.Instance.currentState != GameState.Playing) return;
+        if (this.Players.Count > 1) return;
+
+        RoundManager.Instance?.EndRound();
+    }
+
 
     public List<WeaponData> GetAllPlayerWeapons()
     {

@@ -1,15 +1,22 @@
 using TMPro;
 using UnityEngine;
 using System.Linq;
+using UnityEngine.UI;
+using Unity.Netcode;
 
 public class ResultUI : MonoBehaviour
 {
     [SerializeField] private TextMeshProUGUI resultText;
+    [SerializeField] private Button returnToTitleButton;
 
     void Start()
     {
         ConnectionContainer.Instance.OnResultsReceived += Render;
-        Render();   // 既に届いていた場合に備えて
+        Render();
+
+        bool isServer = NetworkManager.Singleton != null && NetworkManager.Singleton.IsServer;
+        returnToTitleButton.gameObject.SetActive(isServer);
+        returnToTitleButton.onClick.AddListener(() => ConnectionContainer.Instance.ReturnToTitle());
     }
 
     void OnDestroy()

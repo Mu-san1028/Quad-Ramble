@@ -35,13 +35,27 @@ public class ConnectionContainer : NetworkBehaviour
     {
         Instance = this;
         OnInstanceReady?.Invoke(this);
+
+        if (IsServer)
+        {
+            NetworkManager.Singleton.OnClientDisconnectCallback += this.HandleClientDisconnect;
+        }
     }
     public override void OnNetworkDespawn()
     {
-        if (Instance == this)
+        if (NetworkManager.Singleton != null)
         {
-            Instance = null;
+            NetworkManager.Singleton.OnClientDisconnectCallback -= this.HandleClientDisconnect;
         }
+
+        if (Instance == this) Instance = null;
+    }
+
+    private void HandleClientDisconnect(ulong clientId)
+    {
+        if (!IsServer) return;
+        if (this.connections.RemoveAll(c => c.ClientId == clientId) == 0) return;
+        this.BroadcastRoster();
     }
 
     public void Append(ulong clientId, string name)
@@ -55,14 +69,11 @@ public class ConnectionContainer : NetworkBehaviour
         // 名簿の追加はサーバーだけが行う
         this.connections.Add(new Connection((ulong)this.connections.Count, clientId) { Name = name });
 
-        var roster = this.connections
-            .Select(c => new RosterEntry { ClientId = c.ClientId, Name = c.Name })
-            .ToArray();
-        this.SyncRosterClientRpc(roster);
+        this.BroadcastRoster();
     }
 
     [ClientRpc]
-    private void SyncRosterClientRpc(RosterEntry[] roster)
+    private void SyncRosterClientRpc(RosterEntry[] roster, ClientRpcParams clientRpcParams = default)
     {
         if (!IsServer)
         {
@@ -77,6 +88,19 @@ public class ConnectionContainer : NetworkBehaviour
         }
 
         OnConnectionsChanged?.Invoke(this.connections.Count);
+    }
+
+    private void BroadcastRoster()
+    {
+        var roster = this.connections
+            .Select(c => new RosterEntry { ClientId = c.ClientId, Name = c.Name })
+            .ToArray();
+
+        var targets = NetworkManager.Singleton.ConnectedClientsIds.ToArray();
+        this.SyncRosterClientRpc(roster, new ClientRpcParams
+        {
+            Send = new ClientRpcSendParams { TargetClientIds = targets }
+        });
     }
 
 
@@ -118,4 +142,17 @@ public class ConnectionContainer : NetworkBehaviour
             .ToList();
         OnResultsReceived?.Invoke();
     }
+
+    public void ReturnToTitle()
+    {
+        if (!IsServer) return;
+        this.ReturnToTitleClientRpc();
+    }
+
+    [ClientRpc]
+    private void ReturnToTitleClientRpc()
+    {
+        GameManager.Instance.ReturnToTitle();
+    }
+
 }

@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 using System.Collections;
+using System.Collections.Generic;
 using Unity.Cinemachine;
 using Unity.Netcode;
 using Unity.Netcode.Components;
@@ -311,7 +312,7 @@ public class PlayerController : NetworkBehaviour
 
         controller.Move(velocity * Time.deltaTime);
     }
-    
+
     // Rボタン（Right Shoulder）を押した時：次の武器へ
     void OnNextWeapon(InputValue value)
     {
@@ -371,10 +372,13 @@ public class PlayerController : NetworkBehaviour
 
         Items weaponKey = ItemDatabase.Instance.GetKey(weaponData);
         var hits = weaponData.attackRange.GetHitTargets(transform.position, transform.rotation, shootableLayers);
+        var hitIds = new HashSet<ulong>();
+
         foreach (var col in hits)
         {
-            NetworkObject targetNetObj = col.GetComponent<NetworkObject>();
+            NetworkObject targetNetObj = col.GetComponentInParent<NetworkObject>();
             if (targetNetObj == null || targetNetObj.NetworkObjectId == NetworkObjectId) continue;
+            if (!hitIds.Add(targetNetObj.NetworkObjectId)) continue;
 
             Vector3 direction = (col.transform.position - transform.position).normalized;
             SubmitShootServerRpc(col.transform.position, targetNetObj.NetworkObjectId, direction, weaponKey);
@@ -420,13 +424,22 @@ public class PlayerController : NetworkBehaviour
     private void ApplyKnockback(ulong targetId, Vector3 direction, float power)
     {
         if (!IsServer) return;
+        if (!NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(targetId, out var netObj)) return;
 
-        // TODO: ここに疲労倍率が入る
-        Vector3 force = direction.normalized * power;
-        force.y += power * 0.3f;
+        var targetStatus = netObj.GetComponent<PlayerStatus>();
+
+        // 先に疲労を蓄積し、その値を含めた倍率で吹き飛ばす
+        targetStatus?.AddFatigue(power);
+        float multiplier = targetStatus != null ? targetStatus.KnockbackMultiplier : 1f;
+
+        Vector3 force = direction.normalized * power * multiplier;
+        force.y += power * 0.3f * multiplier;
+
+        Debug.Log($"[Knockback] power={power}, fatigue={targetStatus?.Fatigue}, multiplier={multiplier:F2}");
 
         ApplyKnockbackClientRpc(targetId, force);
     }
+
 
 
     [ClientRpc]
@@ -541,12 +554,15 @@ public class PlayerController : NetworkBehaviour
 
         // 判定はサーバーだけが行う
         var hits = Physics.OverlapSphere(center, radius, shootableLayers);
+        var hitIds = new HashSet<ulong>();
+
         foreach (var col in hits)
         {
-            var target = col.GetComponent<NetworkObject>();
+            var target = col.GetComponentInParent<NetworkObject>();
             if (target == null) continue;
             if (target.NetworkObjectId == NetworkObjectId) continue;   // 自分は無視
-            if (col.GetComponent<PlayerController>() == null) continue;
+            if (col.GetComponentInParent<PlayerController>() == null) continue;
+            if (!hitIds.Add(target.NetworkObjectId)) continue; 
 
             Vector3 direction = (col.transform.position - center).normalized;
             this.ApplyKnockback(target.NetworkObjectId, direction, power);

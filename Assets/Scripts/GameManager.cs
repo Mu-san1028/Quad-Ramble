@@ -1,12 +1,16 @@
 using UnityEngine;
 using Unity.Netcode;
+using UnityEngine.SceneManagement;
+using System.Collections;
 
 public class GameManager : MonoBehaviour
 {
     public GameState currentState = GameState.WaitingForPlayers;
     public static GameManager Instance { get; private set; }
+    [SerializeField] private int requiredPlayers = 4;
     [SerializeField] private int[] rankPoints = new int[] { 10, 7, 5, 3 };
     [SerializeField] private string[] stageNames = new string[] { "RoundA", "RoundB", "RoundC" };
+    [SerializeField] private string titleSceneName = "Title";
     [SerializeField] private string resultSceneName = "ResultScene";
     // 開始済みラウンド数
     public int CurrentRound { get; private set; } = 0;
@@ -36,7 +40,7 @@ public class GameManager : MonoBehaviour
 
         if (NetworkManager.Singleton.IsServer
             && ConnectionContainer.Instance != null
-            && ConnectionContainer.Instance.GetConnectionsNum() >= 4)
+            && ConnectionContainer.Instance.GetConnectionsNum() >= requiredPlayers)
         {
             currentState = GameState.Countdown;
             LoadNextScene();
@@ -46,8 +50,8 @@ public class GameManager : MonoBehaviour
 
     public void LoadNextScene()
     {
-        if (!NetworkManager.Singleton.IsServer) return; // サーバーのみがこの処理を行う
         if (NetworkManager.Singleton == null) return; 
+        if (!NetworkManager.Singleton.IsServer) return; // サーバーのみがこの処理を行う
 
         if (CurrentRound < stageNames.Length)
         {
@@ -75,7 +79,31 @@ public class GameManager : MonoBehaviour
         }
         return rankPoints[index];
     }
+
+    public void ResetForNewGame()
+    {
+        CurrentRound = 0;
+        currentState = GameState.WaitingForPlayers;
+    }
+
+    public void ReturnToTitle()
+    {
+        StartCoroutine(this.ReturnToTitleRoutine());
+    }
+
+    private IEnumerator ReturnToTitleRoutine()
+    {
+        if (NetworkManager.Singleton != null)
+        {
+            NetworkManager.Singleton.Shutdown();
+            while (NetworkManager.Singleton.ShutdownInProgress) yield return null;
+        }
+
+        this.ResetForNewGame();
+        SceneManager.LoadScene(titleSceneName, LoadSceneMode.Single);
+    }
 }
+
 public enum GameState
 {
     WaitingForPlayers,

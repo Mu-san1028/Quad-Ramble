@@ -7,7 +7,7 @@ public class GameManager : MonoBehaviour
 {
     public GameState currentState = GameState.WaitingForPlayers;
     public static GameManager Instance { get; private set; }
-    [SerializeField] private int requiredPlayers = 4;
+    [SerializeField] public int requiredPlayers = 4;
     [SerializeField] private int[] rankPoints = new int[] { 10, 7, 5, 3 };
     [SerializeField] private string[] stageNames = new string[] { "RoundA", "RoundB", "RoundC" };
     [SerializeField] private string titleSceneName = "Title";

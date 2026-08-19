@@ -3,10 +3,7 @@ using UnityEngine;
 public class PlayerSpawner : MonoBehaviour
 {
     [SerializeField] private Transform[] spawnPoints;
-    void Start()
-    {
-        
-    }
+    
     public void SpawnPlayer(PlayerController player, int spawnIndex)
     {
         player.CurrentMoveMode = PlayerController.MoveMode.CameraRelative;

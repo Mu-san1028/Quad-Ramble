@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using System.Collections;
 using System.Collections.Generic;
+using UnityEngine.SceneManagement;
 using Unity.Cinemachine;
 using Unity.Netcode;
 using Unity.Netcode.Components;
@@ -17,15 +18,15 @@ public class PlayerController : NetworkBehaviour
     [SerializeField] private float moveSpeed = 5f; // 基本の移動速度
     [SerializeField] private float acceleration = 20f; // 加速力
     [SerializeField] private float deceleration = 20f; // ブレーキ力
+    [SerializeField] private float aimMoveSpeedMultiplier = 0.4f;
 
-    private float CurrentMoveSpeed  => moveSpeed  + (status != null ? status.SpeedBonus : 0f);
+    private float CurrentMoveSpeed  => (moveSpeed + (status != null ? status.SpeedBonus : 0f)) * (isAiming ? aimMoveSpeedMultiplier : 1f);
     private float CurrentJumpHeight => jumpHeight + (status != null ? status.JumpBonus  : 0f);
     private float CurrentTurnSmoothTime => Mathf.Max(0.02f, turnSmoothTime + (status != null ? status.TurnBonus : 0f));
     private CharacterController controller;
     private Vector2 moveInput;
 
     [SerializeField] private Transform mainCamera;
-    public CinemachineCamera aimCamera;
     [SerializeField] private float turnSmoothTime = 1.0f; // キャラクターが振り向くまでの時間
     [SerializeField] private float turnSmoothVelocity; 
 
@@ -41,10 +42,13 @@ public class PlayerController : NetworkBehaviour
     private bool isEliminated = false;
     public bool IsControllable => (IsOwner || this.allowOfflineControl) && !isEliminated;
 
-    [Header("カメラの透明化設定")]
-    public Camera mainUnityCamera;      // 実際のカメラ機能
-    public LayerMask defaultCameraMask; // 普段の視力（全部見える）
-    public LayerMask aimCameraMask;     // エイム時の視力（プレイヤーだけ見えない）
+    [Header("エイム設定")]
+    [SerializeField] private float aimFovMultiplier = 0.8f;
+    [SerializeField] private float fovLerpSpeed = 8f;
+
+    private CinemachineCamera followCam;
+    private float defaultFov;
+
 
     [Header("射撃・Raycast設定")]
     public LayerMask shootableLayers; // 撃てる対象のレイヤー（Player自身を除外するため）
@@ -75,19 +79,7 @@ public class PlayerController : NetworkBehaviour
         // プレイヤーのキー入力は、1つのPlayerInputインスタンスにしか適用されない。
         // 複数のPlayerInputが有効になっていると、意図しないインスタンスに入力を吸われるため、無効化する。
         input.enabled = IsOwner;
-
-        // もし、このキャラが「自分の操作するキャラ」ではない（＝他人のクローン）場合
-        if (!IsOwner)
-        {
-            // 他人のクローンについている「Aim用カメラ」をオフにする（カメラ乗っ取り防止）
-            if (aimCamera != null) aimCamera.gameObject.SetActive(false);
-            // 他人のクローンのメインカメラもオフにする
-            if (mainUnityCamera != null) mainUnityCamera.gameObject.SetActive(false);
-        }
-        else
-        {
-            mainCamera = Camera.main.transform;
-        }
+        if(mainCamera == null) mainCamera = Camera.main.transform;
     }
 
     public override void OnNetworkDespawn()
@@ -111,20 +103,22 @@ public class PlayerController : NetworkBehaviour
     {
         UnityEngine.SceneManagement.SceneManager.sceneLoaded -= RefreshMainCamera;
     }
-    private void RefreshMainCamera(UnityEngine.SceneManagement.Scene scene, UnityEngine.SceneManagement.LoadSceneMode mode)
+    private void RefreshMainCamera(Scene scene, LoadSceneMode mode)
     {
         if (!IsOwner) return;
         // シーンが切り替わったら、メインカメラを再取得する
         mainCamera = Camera.main.transform;
+        isAiming = false;
 
         var followCamObj = GameObject.FindWithTag("FollowCamera");
         if (followCamObj != null)
         {
-            var followCam = followCamObj.GetComponent<CinemachineCamera>();
+            followCam = followCamObj.GetComponent<CinemachineCamera>();
             if (followCam != null)
             {
                 followCam.Follow = transform;
                 followCam.LookAt = transform;
+                defaultFov = followCam.Lens.FieldOfView;
             }
         }
     }
@@ -223,18 +217,7 @@ public class PlayerController : NetworkBehaviour
 
     void OnAim(InputValue value)
     {
-        if (value.isPressed)
-        {
-            aimCamera.Priority = 20;
-            mainUnityCamera.cullingMask = aimCameraMask;
-            isAiming = true;
-        }
-        else
-        {
-            aimCamera.Priority = 0;
-            mainUnityCamera.cullingMask = defaultCameraMask;
-            isAiming = false;
-        }
+        isAiming = value.isPressed;
     }
 
     // 外部のギミックによる速度変化
@@ -245,6 +228,8 @@ public class PlayerController : NetworkBehaviour
 
     void Update()
     {
+        this.UpdateAimFov();
+
         // controller が null、または無効化されている場合は処理しない
         if (controller == null || !controller.enabled) return;
 
@@ -275,12 +260,27 @@ public class PlayerController : NetworkBehaviour
         #endregion
 
         #region キャラを振り向かせる
-        if (moveDirection.magnitude > 0.01f && !isAiming)
+        float targetAngle = 0f;
+        bool hasTarget = false;
+
+        if (isAiming && mainCamera != null)
         {
-            // Atan2関数を使って、X軸とZ軸の値から向くべき角度を計算
-            float targetAngle = Mathf.Atan2(moveDirection.x, moveDirection.z) * Mathf.Rad2Deg;
-            
-            // 現在の角度から目標の角度へ、turnSmoothTime秒かけて滑らかに回転させる
+            Vector3 camForward = mainCamera.forward;
+            camForward.y = 0f;
+            if (camForward.sqrMagnitude > 0.0001f)
+            {
+                targetAngle = Mathf.Atan2(camForward.x, camForward.z) * Mathf.Rad2Deg;
+                hasTarget = true;
+            }
+        }
+        else if (moveDirection.magnitude > 0.01f)
+        {
+            targetAngle = Mathf.Atan2(moveDirection.x, moveDirection.z) * Mathf.Rad2Deg;
+            hasTarget = true;
+        }
+
+        if (hasTarget)
+        {
             float angle = Mathf.SmoothDampAngle(transform.eulerAngles.y, targetAngle, ref turnSmoothVelocity, CurrentTurnSmoothTime);
             transform.rotation = Quaternion.Euler(0f, angle, 0f);
         }
@@ -318,6 +318,16 @@ public class PlayerController : NetworkBehaviour
 
         controller.Move(velocity * Time.deltaTime);
     }
+
+    private void UpdateAimFov()
+    {
+        if (followCam == null) return;
+
+        float target = isAiming ? defaultFov * aimFovMultiplier : defaultFov;
+        followCam.Lens.FieldOfView =
+            Mathf.Lerp(followCam.Lens.FieldOfView, target, fovLerpSpeed * Time.deltaTime);
+    }
+
 
     // Rボタン（Right Shoulder）を押した時：次の武器へ
     void OnNextWeapon(InputValue value)
@@ -400,7 +410,7 @@ public class PlayerController : NetworkBehaviour
         }
 
         Items weaponKey = ItemDatabase.Instance.GetKey(weaponData);
-        Vector3 startPos = transform.position + Vector3.forward * 0.5f;
+        Vector3 startPos = transform.position + Vector3.up * 1.5f + transform.forward * 0.5f;
         Vector3 throwDir = GetThrowDirection(weaponData.launchAngle);
         ThrowProjectileServerRpc(startPos, throwDir * weaponData.throwSpeed, weaponKey);
     }
@@ -602,7 +612,7 @@ public class PlayerController : NetworkBehaviour
         if (weaponData.bulletPrefab != null && weaponData.attackRange == null)
         {
             Vector3 throwDir = GetThrowDirection(weaponData.launchAngle);
-            Vector3 startPos = transform.position + Vector3.forward * 0.5f;
+            Vector3 startPos = transform.position + Vector3.up * 1.5f + transform.forward * 0.5f;
             Vector3 vel = throwDir * weaponData.throwSpeed;
             float gravity = weaponData.gravityScale;
             float dt = 0.05f;
@@ -629,14 +639,7 @@ public class PlayerController : NetworkBehaviour
 
     private Vector3 GetThrowDirection(float launchAngle)
     {
-        Vector3 forward = (mainCamera != null) ? mainCamera.transform.forward : transform.forward;
-        forward.y = 0f;
-
-        // カメラが真上/真下を向いていて水平成分がほぼ0の場合のフォールバック
-        if (forward.sqrMagnitude < 0.0001f) forward = transform.forward;
-        forward.Normalize();
-
-        float rad = launchAngle * Mathf.Deg2Rad;
-        return forward * Mathf.Cos(rad) + Vector3.up * Mathf.Sin(rad);
+        Vector3 forward = (mainCamera != null) ? mainCamera.forward : transform.forward;
+        return forward.normalized;
     }
 }    

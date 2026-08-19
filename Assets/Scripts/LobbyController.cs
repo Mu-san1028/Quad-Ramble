@@ -48,6 +48,6 @@ public class LobbyController : MonoBehaviour
 
     private void UpdateMatchingText(int playerCount)
     {
-        matchingText.text = $"Matching... ({playerCount} / 4)";
+        matchingText.text = $"Matching... ({playerCount} / {GameManager.Instance.requiredPlayers})";
     }
 }

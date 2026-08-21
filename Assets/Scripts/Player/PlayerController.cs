@@ -26,7 +26,6 @@ public class PlayerController : NetworkBehaviour
     private CharacterController controller;
     private Vector2 moveInput;
 
-    [SerializeField] private Transform mainCamera;
     [SerializeField] private float turnSmoothTime = 1.0f; // キャラクターが振り向くまでの時間
     [SerializeField] private float turnSmoothVelocity; 
 
@@ -43,11 +42,16 @@ public class PlayerController : NetworkBehaviour
     public bool IsControllable => (IsOwner || this.allowOfflineControl) && !isEliminated;
 
     [Header("エイム設定")]
-    [SerializeField] private float aimFovMultiplier = 0.8f;
-    [SerializeField] private float fovLerpSpeed = 8f;
+    [SerializeField] private float aimFovMultiplier = 0.8f;       // 構えたときの視野の絞り
+    [SerializeField] private float aimDistanceMultiplier = 0.75f; // 構えたときにカメラを寄せる量
+    [SerializeField] private float aimLerpSpeed = 8f;
 
     private CinemachineCamera followCam;
+    private CinemachineThirdPersonFollow thirdPerson;
+    private Camera mainCam;                            // 画面中央のレイを飛ばす実カメラ
     private float defaultFov;
+    private float defaultCameraDistance;
+    private readonly RaycastHit[] aimHits = new RaycastHit[8];
 
 
     [Header("射撃・Raycast設定")]
@@ -55,7 +59,38 @@ public class PlayerController : NetworkBehaviour
     public float shootRange = 100f;   // 弾が届く距離
 
     [Header("投擲設定")]
-    [SerializeField] private LayerMask groundLayers; // 地面・壁のレイヤー  
+    [SerializeField] private LayerMask groundLayers;
+    [SerializeField] private float throwForwardOffset = 0.8f; // 照準ピボットから前方へ離す距離
+
+    // 照準のヨーだけを取り出した水平方向
+    private Vector3 AimForwardFlat => Quaternion.Euler(0f, aimYaw, 0f) * Vector3.forward;
+
+    // 発射点は照準ピボット基準。水平方向へ離すので、下を向いても高さが変わらない
+    private Vector3 ThrowOrigin => aimPivot != null
+        ? aimPivot.position + AimForwardFlat * throwForwardOffset
+        : transform.position + transform.forward * throwForwardOffset;
+
+    [Header("軌道表示")]
+    [SerializeField] private LineRenderer trajectoryLine;
+    [SerializeField] private GameObject blastMarker;      // 着弾点に置く球
+    [SerializeField] private float markerRadius = 0.5f;   // 見やすさ優先の固定サイズ。blastRadius とは別
+    [SerializeField] private int trajectoryMaxSteps = 60; // サーバーの弾道判定もこの値を使う
+    private readonly List<Vector3> trajectoryPoints = new();
+
+    [Header("照準")]
+    // カメラのブームの根元。この向きがそのまま視線であり、投擲方向でもある
+    [SerializeField] private Transform aimPivot;
+    [SerializeField] private float yawSensitivity = 180f;     // 度/秒
+    [SerializeField] private float pitchSensitivity = 120f;   // 度/秒
+    [SerializeField] private float aimPitchMin = -60f;        // 見下ろしの限界
+    [SerializeField] private float aimPitchMax = 70f;         // 見上げの限界
+
+    // true = 常に視線の向き（Fortnite型・ストレイフ移動） / false = 移動方向を向く（原神型）
+    [SerializeField] private bool alwaysFaceCamera = true;
+
+    private Vector2 lookInput;
+    private float aimYaw;
+    private float aimPitch;                                   // 正が上向き
 
     private bool isAiming = false;
 
@@ -79,7 +114,9 @@ public class PlayerController : NetworkBehaviour
         // プレイヤーのキー入力は、1つのPlayerInputインスタンスにしか適用されない。
         // 複数のPlayerInputが有効になっていると、意図しないインスタンスに入力を吸われるため、無効化する。
         input.enabled = IsOwner;
-        if(mainCamera == null) mainCamera = Camera.main.transform;
+
+        // 照準の表示は自分の画面にだけ出す
+        if (!IsOwner) this.ShowAimPreview(false);
     }
 
     public override void OnNetworkDespawn()
@@ -106,9 +143,8 @@ public class PlayerController : NetworkBehaviour
     private void RefreshMainCamera(Scene scene, LoadSceneMode mode)
     {
         if (!IsOwner) return;
-        // シーンが切り替わったら、メインカメラを再取得する
-        mainCamera = Camera.main.transform;
         isAiming = false;
+        mainCam = Camera.main;
 
         var followCamObj = GameObject.FindWithTag("FollowCamera");
         if (followCamObj != null)
@@ -116,9 +152,14 @@ public class PlayerController : NetworkBehaviour
             followCam = followCamObj.GetComponent<CinemachineCamera>();
             if (followCam != null)
             {
-                followCam.Follow = transform;
-                followCam.LookAt = transform;
+                // ブームの根元は照準ピボット。ピボットの向き＝カメラの向き＝投擲方向
+                followCam.Follow = (aimPivot != null) ? aimPivot : transform;
+                followCam.LookAt = null;   // ThirdPersonFollow は追従先の回転をそのまま使う
+
                 defaultFov = followCam.Lens.FieldOfView;
+
+                thirdPerson = followCam.GetComponent<CinemachineThirdPersonFollow>();
+                if (thirdPerson != null) defaultCameraDistance = thirdPerson.CameraDistance;
             }
         }
     }
@@ -133,6 +174,7 @@ public class PlayerController : NetworkBehaviour
     private void EliminateClientRpc()
     {
         isEliminated = true;
+        isAiming = false;   // 構えたまま脱落すると、FOV と移動速度が戻らなくなる
         Debug.Log($"【{gameObject.name}】が脱落しました！");
         controller.enabled = false;
         // キャラクターを非表示にする
@@ -183,6 +225,12 @@ public class PlayerController : NetworkBehaviour
         GetComponent<NetworkTransform>().Teleport(position, rotation, transform.localScale);
         controller.enabled = true;
 
+        // 照準もスポーン地点の向きに合わせる。
+        // これが無いと、体が次のフレームで前ラウンドの aimYaw に向き直ってしまう
+        aimYaw = rotation.eulerAngles.y;
+        aimPitch = 0f;
+        isAiming = false;
+
         // 速度もリセット
         velocity = Vector3.zero;
         impact = Vector3.zero;
@@ -220,6 +268,12 @@ public class PlayerController : NetworkBehaviour
         isAiming = value.isPressed;
     }
 
+    // 右スティック。カメラではなく照準を動かす
+    void OnLook(InputValue value)
+    {
+        lookInput = value.Get<Vector2>();
+    }
+
     // 外部のギミックによる速度変化
     public void VelocityChange(Vector3 externalAcceleration)
     {
@@ -228,25 +282,52 @@ public class PlayerController : NetworkBehaviour
 
     void Update()
     {
-        this.UpdateAimFov();
+        this.UpdateAimInput();
+        this.UpdateAimCamera();
+        this.UpdateTrajectoryPreview();
 
-        // controller が null、または無効化されている場合は処理しない
-        if (controller == null || !controller.enabled) return;
+        if (controller != null && controller.enabled && this.IsControllable)
+        {
+            this.UpdateMovement();
+        }
 
-        if (!this.IsControllable) return;
+        // 体の回転より後に適用する。親の回転を継承させないため
+        this.ApplyAimPivot();
+    }
 
+    /// <summary>右スティックの入力を照準のヨー・ピッチに積分する</summary>
+    private void UpdateAimInput()
+    {
+        if (!IsOwner) return;
+
+        float dt = Time.deltaTime;
+
+        aimYaw += lookInput.x * yawSensitivity * dt;
+        aimYaw = Mathf.Repeat(aimYaw + 180f, 360f) - 180f;
+
+        aimPitch = Mathf.Clamp(aimPitch + lookInput.y * pitchSensitivity * dt, aimPitchMin, aimPitchMax);
+    }
+
+    /// <summary>照準ピボットにワールド回転を直接書き込む。子であっても体の回転を継承しない</summary>
+    private void ApplyAimPivot()
+    {
+        if (!IsOwner || aimPivot == null) return;
+
+        // aimPitch は「正が上向き」。UnityのX回転は正が下向きなので符号を反転する
+        aimPivot.rotation = Quaternion.Euler(-aimPitch, aimYaw, 0f);
+    }
+
+    private void UpdateMovement()
+    {
         #region カメラ相対移動の計算
         Vector3 forwardDirection, rightDirection;
 
         if (this.CurrentMoveMode == MoveMode.CameraRelative)
         {
-            // カメラの向きに合わせるモード（TPSやFPS用）
-            forwardDirection = mainCamera.forward;
-            rightDirection = mainCamera.right;
-            forwardDirection.y = 0f;
-            rightDirection.y = 0f;
-            forwardDirection.Normalize();
-            rightDirection.Normalize();
+            // 照準のヨーを基準にする。カメラがピッチしても移動方向がぶれない
+            Quaternion yawRot = Quaternion.Euler(0f, aimYaw, 0f);
+            forwardDirection = yawRot * Vector3.forward;
+            rightDirection = yawRot * Vector3.right;
         }
         else
         {
@@ -263,15 +344,11 @@ public class PlayerController : NetworkBehaviour
         float targetAngle = 0f;
         bool hasTarget = false;
 
-        if (isAiming && mainCamera != null)
+        if (isAiming || alwaysFaceCamera)
         {
-            Vector3 camForward = mainCamera.forward;
-            camForward.y = 0f;
-            if (camForward.sqrMagnitude > 0.0001f)
-            {
-                targetAngle = Mathf.Atan2(camForward.x, camForward.z) * Mathf.Rad2Deg;
-                hasTarget = true;
-            }
+            // 体は視線の向き。Fortnite 型では移動は横歩き・後ろ歩きになる
+            targetAngle = aimYaw;
+            hasTarget = true;
         }
         else if (moveDirection.magnitude > 0.01f)
         {
@@ -319,14 +396,25 @@ public class PlayerController : NetworkBehaviour
         controller.Move(velocity * Time.deltaTime);
     }
 
-    private void UpdateAimFov()
+    private void UpdateAimCamera()
     {
-        if (followCam == null) return;
+        float t = aimLerpSpeed * Time.deltaTime;
 
-        float target = isAiming ? defaultFov * aimFovMultiplier : defaultFov;
-        followCam.Lens.FieldOfView =
-            Mathf.Lerp(followCam.Lens.FieldOfView, target, fovLerpSpeed * Time.deltaTime);
+        // 構えると視野が絞られる
+        if (followCam != null)
+        {
+            float targetFov = isAiming ? defaultFov * aimFovMultiplier : defaultFov;
+            followCam.Lens.FieldOfView = Mathf.Lerp(followCam.Lens.FieldOfView, targetFov, t);
+        }
+
+        // 同時に少しだけ寄る。差が小さいので切り替えが滑らかに見える
+        if (thirdPerson != null)
+        {
+            float targetDistance = isAiming ? defaultCameraDistance * aimDistanceMultiplier : defaultCameraDistance;
+            thirdPerson.CameraDistance = Mathf.Lerp(thirdPerson.CameraDistance, targetDistance, t);
+        }
     }
+
 
 
     // Rボタン（Right Shoulder）を押した時：次の武器へ
@@ -410,7 +498,7 @@ public class PlayerController : NetworkBehaviour
         }
 
         Items weaponKey = ItemDatabase.Instance.GetKey(weaponData);
-        Vector3 startPos = transform.position + Vector3.up * 1.5f + transform.forward * 0.5f;
+        Vector3 startPos = ThrowOrigin;
         Vector3 throwDir = GetThrowDirection(weaponData.launchAngle);
         ThrowProjectileServerRpc(startPos, throwDir * weaponData.throwSpeed, weaponKey);
     }
@@ -495,39 +583,114 @@ public class PlayerController : NetworkBehaviour
         float blastRadius = wd?.blastRadius ?? 3f;
         float gravity = wd?.gravityScale ?? 9.8f;
 
-        Vector3 landing = SimulateTrajectory(startPos, initialVelocity, gravity, out float flightTime);
-        Debug.Log($"[Throw] landing: {landing}, flightTime: {flightTime}, power: {power}, blastRadius: {blastRadius}");
+        Vector3 landing = SimulateTrajectory(startPos, initialVelocity, gravity,
+                                             out float flightTime, out bool hitSomething);
 
+        // 弾は当たっても当たらなくても飛んで消える
         ShowProjectileClientRpc(startPos, initialVelocity, flightTime, gravity, weaponKey);
+
+        // 何にも当たらなかった弾は、空中で爆発せずにそのまま消滅する
+        if (!hitSomething) return;
+
+        Debug.Log($"[Throw] landing: {landing}, flightTime: {flightTime}, power: {power}, blastRadius: {blastRadius}");
         StartCoroutine(ExplodeAfterDelay(landing, flightTime, blastRadius, power));
     }
 
+    private void UpdateTrajectoryPreview()
+    {
+        if (!IsOwner) return;
 
-    private Vector3 SimulateTrajectory(Vector3 start, Vector3 vel, float gravity, out float flightTime)
+        var weaponData = this.playerItem != null
+            ? this.playerItem.CurrentWeapon?.itemData as WeaponData
+            : null;
+
+        if (!isAiming || !IsControllable || weaponData == null || weaponData.weaponType != WeaponType.Throw)
+        {
+            this.ShowAimPreview(false);
+            return;
+        }
+
+        Vector3 startPos = ThrowOrigin;
+        Vector3 vel = GetThrowDirection(weaponData.launchAngle) * weaponData.throwSpeed;
+
+        Vector3 landing = SimulateTrajectory(startPos, vel, weaponData.gravityScale,
+                                             out _, out bool hitSomething, trajectoryPoints);
+
+        // 線は常に出す。マーカーは着弾するときだけ
+        if (trajectoryLine != null)
+        {
+            trajectoryLine.enabled = true;
+            trajectoryLine.positionCount = trajectoryPoints.Count;
+            for (int i = 0; i < trajectoryPoints.Count; i++)
+            {
+                trajectoryLine.SetPosition(i, trajectoryPoints[i]);
+            }
+        }
+
+        this.ShowBlastMarker(hitSomething);
+
+        if (hitSomething && blastMarker != null)
+        {
+            blastMarker.transform.position = landing;
+            // Unity の Sphere は直径1なので、半径を出すには2倍する
+            blastMarker.transform.localScale = Vector3.one * markerRadius * 2f;
+        }
+    }
+
+    /// <summary>軌道線と着弾マーカーの表示をまとめて切り替える</summary>
+    private void ShowAimPreview(bool visible)
+    {
+        if (trajectoryLine != null) trajectoryLine.enabled = visible;
+        this.ShowBlastMarker(visible);
+    }
+
+    private void ShowBlastMarker(bool visible)
+    {
+        if (blastMarker != null && blastMarker.activeSelf != visible) blastMarker.SetActive(visible);
+    }
+
+
+    /// <summary>
+    /// 弾道をシミュレートする。ステップ数を撃ち切った場合は hitSomething が false になり、
+    /// そのときの戻り値は「着弾点」ではなく単なる打ち切り位置なので使ってはいけない。
+    /// ステップ上限はサーバーとプレビューで共有する（ズレると表示と実際が食い違う）。
+    /// </summary>
+    private Vector3 SimulateTrajectory(Vector3 start, Vector3 vel, float gravity,
+                                       out float flightTime, out bool hitSomething,
+                                       List<Vector3> path = null)
     {
         Vector3 pos = start;
         float dt = 0.05f;
         flightTime = 0f;
+        hitSomething = false;
 
-        for (int i = 0; i < 200; i++)
+        path?.Clear();
+        path?.Add(pos);
+
+        for (int i = 0; i < trajectoryMaxSteps; i++)
         {
             Vector3 next = pos + vel * dt;
             vel.y -= gravity * dt;
             flightTime += dt;
 
             if (Physics.Linecast(pos, next, groundLayers))
+            {
+                hitSomething = true;
                 return pos;
+            }
 
             if (Physics.Linecast(pos, next, out RaycastHit hit, shootableLayers))
             {
                 var hitNetObj = hit.collider.GetComponent<NetworkObject>();
                 if (hitNetObj == null || hitNetObj.NetworkObjectId != NetworkObjectId)
                 {
+                    hitSomething = true;
                     return pos;
                 }
             }
 
             pos = next;
+            path?.Add(pos);
         }
         return pos;
     }
@@ -612,7 +775,7 @@ public class PlayerController : NetworkBehaviour
         if (weaponData.bulletPrefab != null && weaponData.attackRange == null)
         {
             Vector3 throwDir = GetThrowDirection(weaponData.launchAngle);
-            Vector3 startPos = transform.position + Vector3.up * 1.5f + transform.forward * 0.5f;
+            Vector3 startPos = ThrowOrigin;
             Vector3 vel = throwDir * weaponData.throwSpeed;
             float gravity = weaponData.gravityScale;
             float dt = 0.05f;
@@ -637,9 +800,45 @@ public class PlayerController : NetworkBehaviour
         }
     }
 
+    /// <summary>画面中央が指すワールド座標。カメラは自分の後ろにあるので自分自身は無視する</summary>
+    private Vector3 GetAimPoint()
+    {
+        Ray ray = new Ray(mainCam.transform.position, mainCam.transform.forward);
+        Vector3 point = ray.GetPoint(shootRange);   // 何にも当たらなければ遠方の点
+
+        int count = Physics.RaycastNonAlloc(ray, aimHits, shootRange, groundLayers | shootableLayers);
+        float nearest = float.MaxValue;
+
+        for (int i = 0; i < count; i++)
+        {
+            var netObj = aimHits[i].collider.GetComponentInParent<NetworkObject>();
+            if (netObj != null && netObj.NetworkObjectId == NetworkObjectId) continue;
+
+            if (aimHits[i].distance < nearest)
+            {
+                nearest = aimHits[i].distance;
+                point = aimHits[i].point;
+            }
+        }
+        return point;
+    }
+
+    /// <summary>銃口から狙点へ向ける。カメラと銃口の視差をここで吸収する</summary>
     private Vector3 GetThrowDirection(float launchAngle)
     {
-        Vector3 forward = (mainCamera != null) ? mainCamera.forward : transform.forward;
-        return forward.normalized;
+        if (aimPivot == null) return transform.forward;
+
+        // 構えていないときは、狙点ではなく武器ごとの既定の弧で投げる
+        if (!isAiming)
+        {
+            float rad = launchAngle * Mathf.Deg2Rad;
+            return AimForwardFlat * Mathf.Cos(rad) + Vector3.up * Mathf.Sin(rad);
+        }
+
+        if (mainCam == null) return aimPivot.forward;
+
+        Vector3 dir = GetAimPoint() - ThrowOrigin;
+        return dir.sqrMagnitude > 0.0001f ? dir.normalized : aimPivot.forward;
     }
+
 }    

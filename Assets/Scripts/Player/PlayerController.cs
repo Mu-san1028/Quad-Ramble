@@ -56,6 +56,8 @@ public class PlayerController : NetworkBehaviour
 
     [Header("射撃・Raycast設定")]
     public LayerMask shootableLayers; // 撃てる対象のレイヤー（Player自身を除外するため）
+    [SerializeField] private LayerMask breakableLayers;  // 壊せるブロック
+
     public float shootRange = 100f;   // 弾が届く距離
 
     [Header("投擲設定")]
@@ -475,7 +477,8 @@ public class PlayerController : NetworkBehaviour
         }
 
         Items weaponKey = ItemDatabase.Instance.GetKey(weaponData);
-        var hits = weaponData.attackRange.GetHitTargets(transform.position, transform.rotation, shootableLayers);
+        var hits = weaponData.attackRange.GetHitTargets(transform.position, transform.rotation,
+                                                        shootableLayers | breakableLayers);
         var hitIds = new HashSet<ulong>();
 
         foreach (var col in hits)
@@ -483,6 +486,12 @@ public class PlayerController : NetworkBehaviour
             NetworkObject targetNetObj = col.GetComponentInParent<NetworkObject>();
             if (targetNetObj == null || targetNetObj.NetworkObjectId == NetworkObjectId) continue;
             if (!hitIds.Add(targetNetObj.NetworkObjectId)) continue;
+
+            if (col.GetComponentInParent<BreakableBlock>() != null)
+            {
+                BreakBlockServerRpc(targetNetObj.NetworkObjectId, weaponKey);
+                continue;
+            }
 
             Vector3 direction = (col.transform.position - transform.position).normalized;
             SubmitShootServerRpc(col.transform.position, targetNetObj.NetworkObjectId, direction, weaponKey);
@@ -523,7 +532,15 @@ public class PlayerController : NetworkBehaviour
         this.ApplyKnockback(targetId, direction, power);
     }
 
+    [ServerRpc]
+    void BreakBlockServerRpc(ulong blockId, Items weaponKey)
+    {
+        if (!NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(blockId, out var netObj)) return;
 
+        var wd = ItemDatabase.Instance.GetItem(weaponKey) as WeaponData;
+        netObj.GetComponent<BreakableBlock>()?.AddDamage(wd != null ? wd.Power : 0f);
+    }
+    
     /// <summary>サーバーが最終的なノックバックを決めて対象に適用させる</summary>
     private void ApplyKnockback(ulong targetId, Vector3 direction, float power)
     {
@@ -732,7 +749,7 @@ public class PlayerController : NetworkBehaviour
         ExplosionEffectClientRpc(center, radius);
 
         // 判定はサーバーだけが行う
-        var hits = Physics.OverlapSphere(center, radius, shootableLayers);
+        var hits = Physics.OverlapSphere(center, radius, shootableLayers | breakableLayers);
         var hitIds = new HashSet<ulong>();
 
         foreach (var col in hits)
@@ -740,8 +757,12 @@ public class PlayerController : NetworkBehaviour
             var target = col.GetComponentInParent<NetworkObject>();
             if (target == null) continue;
             if (target.NetworkObjectId == NetworkObjectId) continue;   // 自分は無視
+            if (!hitIds.Add(target.NetworkObjectId)) continue;
+
+            var block = col.GetComponentInParent<BreakableBlock>();
+            if (block != null) { block.AddDamage(power); continue; }   // ここはサーバー実行なので直接呼べる
+
             if (col.GetComponentInParent<PlayerController>() == null) continue;
-            if (!hitIds.Add(target.NetworkObjectId)) continue; 
 
             Vector3 direction = (col.transform.position - center).normalized;
             this.ApplyKnockback(target.NetworkObjectId, direction, power);

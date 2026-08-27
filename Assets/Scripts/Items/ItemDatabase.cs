@@ -16,6 +16,11 @@ public enum Items
     Spear,
     Sword,
     Landmine,
+
+    // Permanent Upgrades
+    JumpUp,
+    SpeedUp,
+    TurnUp,
 }
 
 public class ItemDatabase : MonoBehaviour

@@ -1,36 +1,80 @@
-using UnityEngine;
 using System.Collections.Generic;
+using UnityEngine;
 
-public class WindReceiver : MonoBehaviour
+/// <summary>
+/// プレイヤーに付ける。今入っている WindArea をまとめて 1 本の加速度にして PlayerController に渡す。
+///
+/// 旧実装からの変更点:
+/// - コメントが文字化けしていたので書き直した（Shift-JIS のまま保存されていた）。
+/// - 自前の FixedUpdate をやめ、StageDirector の一括ループから呼ばれるようにした。
+/// - HashSet&lt;WindArea&gt; を List に変えた。同時に入る風は多くても数個で、
+///   その規模では List の線形探索の方がハッシュ計算より速く、走査も空バケットを踏まない。
+/// - OnTrigger のたびの GetComponent&lt;WindArea&gt;() を StageCache 経由にした。
+///   風以外の Collider に触れたときの空振りが一番多く、そこが丸ごと消える。
+/// - 風の数だけ VelocityChange を呼んでいたのを、合算して 1 回にした。
+/// </summary>
+public class WindReceiver : MonoBehaviour, IStageFixedTick
 {
     private PlayerController playerController;
-    private HashSet<WindArea> activeWindAreas = new HashSet<WindArea>();
 
-    void Awake()
+    // 同時に入る風の数はたかが知れているので List で十分。走査が配列そのままなのが効く。
+    private readonly List<WindArea> activeWindAreas = new List<WindArea>(4);
+
+    private void Awake()
     {
-        playerController = GetComponent<PlayerController>();
+        this.playerController = this.GetComponent<PlayerController>();
     }
 
-    void OnTriggerEnter(Collider other)
+    private void OnEnable() => StageDirector.Register(this);
+
+    private void OnDisable()
     {
-        var area = other.GetComponent<WindArea>();
-        if (area != null) activeWindAreas.Add(area);
+        StageDirector.Unregister(this);
+        this.activeWindAreas.Clear();
     }
 
-    void OnTriggerExit(Collider other)
+    private void OnTriggerEnter(Collider other)
     {
-        var area = other.GetComponent<WindArea>();
-        if (area != null) activeWindAreas.Remove(area);
+        WindArea area = StageCache<WindArea>.Get(other);
+        if (area == null) return;
+        if (this.activeWindAreas.Contains(area)) return; // 子 Collider が複数ある場合の二重登録防止
+
+        this.activeWindAreas.Add(area);
     }
 
-    void FixedUpdate()
+    private void OnTriggerExit(Collider other)
     {
-        // �͈͓��ɂ��邷�ׂĂ̕��̉e�����v�Z
-        foreach (var area in activeWindAreas)
+        WindArea area = StageCache<WindArea>.Get(other);
+        if (area == null) return;
+
+        this.activeWindAreas.Remove(area);
+    }
+
+    public void FixedTick(float fixedDeltaTime)
+    {
+        int count = this.activeWindAreas.Count;
+        if (count == 0) return;
+        if (this.playerController == null) return;
+
+        // 風ごとに VelocityChange を呼ばず、合算してから 1 回だけ渡す。
+        Vector3 total = Vector3.zero;
+
+        // 後ろから回しているのは、破棄済みの風をその場で取り除いても添字がずれないため。
+        // 風の側が消えた場合 OnTriggerExit は飛んでこないので、ここで掃除しないと残り続ける。
+        for (int i = count - 1; i >= 0; i--)
         {
-            // PlayerController��VelocityChange���\�b�h�ɗ͂�n��
-            // ���̌��� * ���� * ���� �����Z
-            playerController.VelocityChange(area.windDirection.normalized * area.force * Time.fixedDeltaTime);
+            WindArea area = this.activeWindAreas[i];
+            if (area == null)
+            {
+                this.activeWindAreas.RemoveAt(i);
+                continue;
+            }
+            total += area.Acceleration;
+        }
+
+        if (total != Vector3.zero)
+        {
+            this.playerController.VelocityChange(total * fixedDeltaTime);
         }
     }
 }

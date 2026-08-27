@@ -62,6 +62,11 @@ public class PlayerItem : NetworkBehaviour
         {
             this.ApplyWeapon(weapon);
         }
+        else if (data is PermanentUpgrade upgrade)
+        {
+            this.ApplyPermanentUpgrade(upgrade);
+        }
+
     }
 
     private void ApplyConsumableItem(ConsumableItemData data)
@@ -71,6 +76,14 @@ public class PlayerItem : NetworkBehaviour
         Debug.Log("消費アイテムを取得: " + data.name);
         this.playerStatus.AddTemporary(data);
     }
+
+    private void ApplyPermanentUpgrade(PermanentUpgrade data)
+    {
+        if (!IsServer) return;
+        bool applied = this.playerStatus.AddPermanent(data);
+        Debug.Log(applied ? $"恒久強化を取得: {data.itemName}" : $"上限のため無効: {data.itemName}");
+    }
+
 
 
     private void ApplyWeapon(WeaponData weapon) {

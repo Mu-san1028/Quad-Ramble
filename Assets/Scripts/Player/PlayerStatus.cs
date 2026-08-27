@@ -28,6 +28,7 @@ public class PlayerStatus : NetworkBehaviour
     public float KnockbackMultiplier => 1f + this.fatigue.Value * this.fatigueScale;
 
     private readonly List<ActiveEffect> effects = new ();
+    private readonly Dictionary<UpgradeKind, int> stacks = new ();
 
     // サーバーが書き、全員が読む。x=Speed, y=Jump, z=Turn
     private readonly NetworkVariable<Vector3> bonuses = new ();
@@ -72,17 +73,27 @@ public class PlayerStatus : NetworkBehaviour
         this.Recalculate();
     }
 
-    /// <summary>恒久強化。ラウンド終了まで消えない</summary>
-    public void AddPermanent(float speed, float jump, float turn)
+    /// <summary>恒久強化。上限に達していたら false を返す</summary>
+    public bool AddPermanent(PermanentUpgrade data)
     {
-        if (!IsServer) return;
+        if (!IsServer) return false;
+
+        this.stacks.TryGetValue(data.kind, out int current);
+        if (current >= data.maxStacks) return false;
+        this.stacks[data.kind] = current + 1;
 
         this.effects.Add(new ActiveEffect
         {
-            SpeedBonus = speed, JumpBonus = jump, TurnBonus = turn, IsPermanent = true
+            SpeedBonus = data.speedBoost,
+            JumpBonus  = data.jumpBoost,
+            TurnBonus  = -data.turnSpeedBoost,
+            IsPermanent = true
         });
         this.Recalculate();
+        return true;
     }
+
+    public int GetStacks(UpgradeKind kind) => this.stacks.TryGetValue(kind, out int n) ? n : 0;
 
     /// <summary>攻撃を受けたときに疲労を蓄積する（サーバーのみ）</summary>
     public void AddFatigue(float power)
@@ -97,6 +108,7 @@ public class PlayerStatus : NetworkBehaviour
         if (!IsServer) return;
 
         this.effects.Clear();
+        this.stacks.Clear();
         this.fatigue.Value = 0f;
         this.Recalculate();
     }

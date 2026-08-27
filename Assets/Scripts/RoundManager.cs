@@ -12,6 +12,9 @@ public class RoundManager : NetworkBehaviour
 
     [Header("このラウンドに出現するアイテム")]
     [SerializeField] private Items[] availableItems;
+    [SerializeField] private Items[] blockDropItems;
+    public Items[] BlockDropItems => this.blockDropItems;
+
     public Items[] AvailableItems => this.availableItems;
 
     private PlayerSpawner playerSpawner;

@@ -25,6 +25,7 @@ public class PlayerController : NetworkBehaviour
     private float CurrentTurnSmoothTime => Mathf.Max(0.02f, turnSmoothTime + (status != null ? status.TurnBonus : 0f));
     private CharacterController controller;
     [SerializeField] private TrajectoryPreview preview;
+    [SerializeField] private PlayerCameraRig cameraRig;
     private Vector2 moveInput;
 
     [SerializeField] private float turnSmoothTime = 1.0f; // キャラクターが振り向くまでの時間
@@ -41,17 +42,6 @@ public class PlayerController : NetworkBehaviour
 
     private bool isEliminated = false;
     public bool IsControllable => (IsOwner || this.allowOfflineControl) && !isEliminated;
-
-    [Header("エイム設定")]
-    [SerializeField] private float aimFovMultiplier = 0.8f;       // 構えたときの視野の絞り
-    [SerializeField] private float aimDistanceMultiplier = 0.75f; // 構えたときにカメラを寄せる量
-    [SerializeField] private float aimLerpSpeed = 8f;
-
-    private CinemachineCamera followCam;
-    private CinemachineThirdPersonFollow thirdPerson;
-    private Camera mainCam;                            // 画面中央のレイを飛ばす実カメラ
-    private float defaultFov;
-    private float defaultCameraDistance;
     private readonly RaycastHit[] aimHits = new RaycastHit[8];
 
 
@@ -151,29 +141,14 @@ public class PlayerController : NetworkBehaviour
     {
         UnityEngine.SceneManagement.SceneManager.sceneLoaded -= RefreshMainCamera;
     }
+
     private void RefreshMainCamera(Scene scene, LoadSceneMode mode)
     {
         if (!IsOwner) return;
         isAiming = false;
-        mainCam = Camera.main;
-
-        var followCamObj = GameObject.FindWithTag("FollowCamera");
-        if (followCamObj != null)
-        {
-            followCam = followCamObj.GetComponent<CinemachineCamera>();
-            if (followCam != null)
-            {
-                // ブームの根元は照準ピボット。ピボットの向き＝カメラの向き＝投擲方向
-                followCam.Follow = (aimPivot != null) ? aimPivot : transform;
-                followCam.LookAt = null;   // ThirdPersonFollow は追従先の回転をそのまま使う
-
-                defaultFov = followCam.Lens.FieldOfView;
-
-                thirdPerson = followCam.GetComponent<CinemachineThirdPersonFollow>();
-                if (thirdPerson != null) defaultCameraDistance = thirdPerson.CameraDistance;
-            }
-        }
+        cameraRig.Rebind(aimPivot != null ? aimPivot : transform);
     }
+
 
     public void Eliminate()
     {
@@ -292,7 +267,7 @@ public class PlayerController : NetworkBehaviour
     void Update()
     {
         this.UpdateAimInput();
-        this.UpdateAimCamera();
+        cameraRig.UpdateAim(isAiming);
         this.UpdateTrajectoryPreview();
 
         if (controller != null && controller.enabled && this.IsControllable)
@@ -420,27 +395,6 @@ public class PlayerController : NetworkBehaviour
 
         controller.Move(velocity * Time.deltaTime);
     }
-
-    private void UpdateAimCamera()
-    {
-        float t = aimLerpSpeed * Time.deltaTime;
-
-        // 構えると視野が絞られる
-        if (followCam != null)
-        {
-            float targetFov = isAiming ? defaultFov * aimFovMultiplier : defaultFov;
-            followCam.Lens.FieldOfView = Mathf.Lerp(followCam.Lens.FieldOfView, targetFov, t);
-        }
-
-        // 同時に少しだけ寄る。差が小さいので切り替えが滑らかに見える
-        if (thirdPerson != null)
-        {
-            float targetDistance = isAiming ? defaultCameraDistance * aimDistanceMultiplier : defaultCameraDistance;
-            thirdPerson.CameraDistance = Mathf.Lerp(thirdPerson.CameraDistance, targetDistance, t);
-        }
-    }
-
-
 
     // Rボタン（Right Shoulder）を押した時：次の武器へ
     void OnNextWeapon(InputValue value)
@@ -768,7 +722,7 @@ public class PlayerController : NetworkBehaviour
     /// <summary>画面中央が指すワールド座標。カメラは自分の後ろにあるので自分自身は無視する</summary>
     private Vector3 GetAimPoint()
     {
-        Ray ray = new Ray(mainCam.transform.position, mainCam.transform.forward);
+        Ray ray = new Ray(cameraRig.Main.transform.position, cameraRig.Main.transform.forward);
         Vector3 point = ray.GetPoint(shootRange);   // 何にも当たらなければ遠方の点
 
         int count = Physics.RaycastNonAlloc(ray, aimHits, shootRange, groundLayers | shootableLayers);
@@ -800,7 +754,7 @@ public class PlayerController : NetworkBehaviour
             return AimForwardFlat * Mathf.Cos(rad) + Vector3.up * Mathf.Sin(rad);
         }
 
-        if (mainCam == null) return aimPivot.forward;
+        if (cameraRig.Main == null) return aimPivot.forward;
 
         Vector3 dir = GetAimPoint() - ThrowOrigin;
         return dir.sqrMagnitude > 0.0001f ? dir.normalized : aimPivot.forward;

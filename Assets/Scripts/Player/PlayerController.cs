@@ -24,6 +24,7 @@ public class PlayerController : NetworkBehaviour
     private float CurrentJumpHeight => jumpHeight + (status != null ? status.JumpBonus  : 0f);
     private float CurrentTurnSmoothTime => Mathf.Max(0.02f, turnSmoothTime + (status != null ? status.TurnBonus : 0f));
     private CharacterController controller;
+    [SerializeField] private TrajectoryPreview preview;
     private Vector2 moveInput;
 
     [SerializeField] private float turnSmoothTime = 1.0f; // キャラクターが振り向くまでの時間
@@ -73,9 +74,6 @@ public class PlayerController : NetworkBehaviour
         : transform.position + transform.forward * throwForwardOffset;
 
     [Header("軌道表示")]
-    [SerializeField] private LineRenderer trajectoryLine;
-    [SerializeField] private GameObject blastMarker;      // 着弾点に置く球
-    [SerializeField] private float markerRadius = 0.5f;   // 見やすさ優先の固定サイズ。blastRadius とは別
     [SerializeField] private int trajectoryMaxSteps = 60; // サーバーの弾道判定もこの値を使う
     private readonly List<Vector3> trajectoryPoints = new();
 
@@ -92,7 +90,7 @@ public class PlayerController : NetworkBehaviour
 
     private Vector2 lookInput;
     private float aimYaw;
-    private float aimPitch;                                   // 正が上向き
+    private float aimPitch;
 
     private bool isAiming = false;
 
@@ -107,6 +105,15 @@ public class PlayerController : NetworkBehaviour
     // GMなどの別のスクリプトから、player.currentMoveMode = MoveMode.WorldAbsolute; のようにして、移動モードを切り替えることができる。
     public MoveMode CurrentMoveMode { get; set; } = MoveMode.CameraRelative;
 
+    private TrajectorySimulator.Settings TrajectorySettings => new()
+    {
+        groundLayers = groundLayers,
+        blockerLayers = shootableLayers,
+        maxSteps = trajectoryMaxSteps,
+        ignoreNetworkObjectId = NetworkObjectId,
+    };
+
+
     // ネットワーク上にこのキャラが生成された時に1回だけ呼ばれるメソッド
     public override void OnNetworkSpawn()
     {
@@ -117,8 +124,10 @@ public class PlayerController : NetworkBehaviour
         // 複数のPlayerInputが有効になっていると、意図しないインスタンスに入力を吸われるため、無効化する。
         input.enabled = IsOwner;
 
+        if (IsOwner) PairInputDevice(input);
+
         // 照準の表示は自分の画面にだけ出す
-        if (!IsOwner) this.ShowAimPreview(false);
+        if (!IsOwner) preview.Show(false);
     }
 
     public override void OnNetworkDespawn()
@@ -259,7 +268,6 @@ public class PlayerController : NetworkBehaviour
         }
     }
 
-    // WASD入力があるたびに自動で呼ばれる
     void OnMove(InputValue value)
     {
         moveInput = value.Get<Vector2>();
@@ -270,7 +278,6 @@ public class PlayerController : NetworkBehaviour
         isAiming = value.isPressed;
     }
 
-    // 右スティック。カメラではなく照準を動かす
     void OnLook(InputValue value)
     {
         lookInput = value.Get<Vector2>();
@@ -318,6 +325,22 @@ public class PlayerController : NetworkBehaviour
         // aimPitch は「正が上向き」。UnityのX回転は正が下向きなので符号を反転する
         aimPivot.rotation = Quaternion.Euler(-aimPitch, aimYaw, 0f);
     }
+
+    /// <summary>この端末に割り当てられたパッドだけを受け付ける</summary>
+    private void PairInputDevice(PlayerInput input)
+    {
+        var pad = LocalGamepad.Current;
+        if (pad == null)
+        {
+            // パッドが無ければ従来どおり全デバイス受付（エディタのキーボード確認を壊さない）
+            if (LocalGamepad.Seat > 0) Debug.LogError($"[Input] seat={LocalGamepad.Seat} のパッドが見つかりません");
+            return;
+        }
+
+        input.neverAutoSwitchControlSchemes = true;   // 他のデバイスに触れても奪われない
+        input.SwitchCurrentControlScheme("Gamepad", pad);
+    }
+
 
     private void UpdateMovement()
     {
@@ -540,7 +563,7 @@ public class PlayerController : NetworkBehaviour
         var wd = ItemDatabase.Instance.GetItem(weaponKey) as WeaponData;
         netObj.GetComponent<BreakableBlock>()?.AddDamage(wd != null ? wd.Power : 0f);
     }
-    
+
     /// <summary>サーバーが最終的なノックバックを決めて対象に適用させる</summary>
     private void ApplyKnockback(ulong targetId, Vector3 direction, float power)
     {
@@ -600,8 +623,8 @@ public class PlayerController : NetworkBehaviour
         float blastRadius = wd?.blastRadius ?? 3f;
         float gravity = wd?.gravityScale ?? 9.8f;
 
-        Vector3 landing = SimulateTrajectory(startPos, initialVelocity, gravity,
-                                             out float flightTime, out bool hitSomething);
+        Vector3 landing = TrajectorySimulator.Simulate(startPos, initialVelocity, gravity,
+                                                       TrajectorySettings, out float flightTime, out bool hitSomething);
 
         // 弾は当たっても当たらなくても飛んで消える
         ShowProjectileClientRpc(startPos, initialVelocity, flightTime, gravity, weaponKey);
@@ -623,93 +646,15 @@ public class PlayerController : NetworkBehaviour
 
         if (!isAiming || !IsControllable || weaponData == null || weaponData.weaponType != WeaponType.Throw)
         {
-            this.ShowAimPreview(false);
+            preview.Show(false);
             return;
         }
 
-        Vector3 startPos = ThrowOrigin;
         Vector3 vel = GetThrowDirection(weaponData.launchAngle) * weaponData.throwSpeed;
-
-        Vector3 landing = SimulateTrajectory(startPos, vel, weaponData.gravityScale,
-                                             out _, out bool hitSomething, trajectoryPoints);
-
-        // 線は常に出す。マーカーは着弾するときだけ
-        if (trajectoryLine != null)
-        {
-            trajectoryLine.enabled = true;
-            trajectoryLine.positionCount = trajectoryPoints.Count;
-            for (int i = 0; i < trajectoryPoints.Count; i++)
-            {
-                trajectoryLine.SetPosition(i, trajectoryPoints[i]);
-            }
-        }
-
-        this.ShowBlastMarker(hitSomething);
-
-        if (hitSomething && blastMarker != null)
-        {
-            blastMarker.transform.position = landing;
-            // Unity の Sphere は直径1なので、半径を出すには2倍する
-            blastMarker.transform.localScale = Vector3.one * markerRadius * 2f;
-        }
-    }
-
-    /// <summary>軌道線と着弾マーカーの表示をまとめて切り替える</summary>
-    private void ShowAimPreview(bool visible)
-    {
-        if (trajectoryLine != null) trajectoryLine.enabled = visible;
-        this.ShowBlastMarker(visible);
-    }
-
-    private void ShowBlastMarker(bool visible)
-    {
-        if (blastMarker != null && blastMarker.activeSelf != visible) blastMarker.SetActive(visible);
-    }
-
-
-    /// <summary>
-    /// 弾道をシミュレートする。ステップ数を撃ち切った場合は hitSomething が false になり、
-    /// そのときの戻り値は「着弾点」ではなく単なる打ち切り位置なので使ってはいけない。
-    /// ステップ上限はサーバーとプレビューで共有する（ズレると表示と実際が食い違う）。
-    /// </summary>
-    private Vector3 SimulateTrajectory(Vector3 start, Vector3 vel, float gravity,
-                                       out float flightTime, out bool hitSomething,
-                                       List<Vector3> path = null)
-    {
-        Vector3 pos = start;
-        float dt = 0.05f;
-        flightTime = 0f;
-        hitSomething = false;
-
-        path?.Clear();
-        path?.Add(pos);
-
-        for (int i = 0; i < trajectoryMaxSteps; i++)
-        {
-            Vector3 next = pos + vel * dt;
-            vel.y -= gravity * dt;
-            flightTime += dt;
-
-            if (Physics.Linecast(pos, next, groundLayers))
-            {
-                hitSomething = true;
-                return pos;
-            }
-
-            if (Physics.Linecast(pos, next, out RaycastHit hit, shootableLayers))
-            {
-                var hitNetObj = hit.collider.GetComponent<NetworkObject>();
-                if (hitNetObj == null || hitNetObj.NetworkObjectId != NetworkObjectId)
-                {
-                    hitSomething = true;
-                    return pos;
-                }
-            }
-
-            pos = next;
-            path?.Add(pos);
-        }
-        return pos;
+        Vector3 landing = TrajectorySimulator.Simulate(ThrowOrigin, vel, weaponData.gravityScale,
+                                                       TrajectorySettings, out _, out bool hit,
+                                                       trajectoryPoints);
+        preview.Draw(trajectoryPoints, landing, hit);
     }
 
     [ClientRpc]
@@ -737,7 +682,6 @@ public class PlayerController : NetworkBehaviour
         }
         Destroy(obj);
     }
-
 
     private IEnumerator ExplodeAfterDelay(Vector3 center, float delay, float radius, float power)
     {
@@ -861,5 +805,4 @@ public class PlayerController : NetworkBehaviour
         Vector3 dir = GetAimPoint() - ThrowOrigin;
         return dir.sqrMagnitude > 0.0001f ? dir.normalized : aimPivot.forward;
     }
-
 }    

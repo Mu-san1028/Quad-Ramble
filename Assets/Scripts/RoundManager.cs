@@ -14,10 +14,10 @@ public class RoundManager : NetworkBehaviour
     [SerializeField] private Items[] availableItems;
     [SerializeField] private Items[] blockDropItems;
     public Items[] BlockDropItems => this.blockDropItems;
-
     public Items[] AvailableItems => this.availableItems;
 
     private PlayerSpawner playerSpawner;
+    private RoundScoring scoring;
     private bool isRoundOver = false;
     private readonly WaitForSeconds beforeSceneTransition = new (3);
 
@@ -36,6 +36,7 @@ public class RoundManager : NetworkBehaviour
         if (!IsServer) return;
 
         this.playerSpawner = FindAnyObjectByType<PlayerSpawner>();
+        this.scoring = FindAnyObjectByType<RoundScoring>();
 
         GameManager.Instance.SetState(GameState.Countdown);
         PlayerManager.Instance.ResetPlayers();
@@ -76,7 +77,7 @@ public class RoundManager : NetworkBehaviour
         if (this.remainingTime.Value <= 0f)
         {
             this.remainingTime.Value = 0f;
-            StartCoroutine(this.EndRoundRoutine("タイムアップ！"));
+            StartCoroutine(this.EndRoundRoutine("Time's up !"));
         }
     }
 
@@ -92,7 +93,7 @@ public class RoundManager : NetworkBehaviour
     public void EndRound()
     {
         if (this.isRoundOver) return;
-        StartCoroutine(this.EndRoundRoutine("サバイバル終了！"));
+        StartCoroutine(this.EndRoundRoutine("Finish !"));
     }
 
     // シーン切り替え
@@ -100,7 +101,8 @@ public class RoundManager : NetworkBehaviour
     {
         this.isRoundOver = true;
         GameManager.Instance.SetState(GameState.Countdown);
-        this.AwardPoints();
+        if (this.scoring != null) this.scoring.AwardPoints();
+        else this.AwardPoints();
         Debug.Log(message);
 
         yield return this.beforeSceneTransition;
@@ -111,7 +113,7 @@ public class RoundManager : NetworkBehaviour
 
     private void AwardPoints()
     {
-        if (!IsServer) return; // サーバーのみがこの処理を行う
+        if (!IsServer) return;
         var ranking = PlayerManager.Instance.GetRanking();
         int rank = 1;
 

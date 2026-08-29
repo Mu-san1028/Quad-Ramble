@@ -21,6 +21,9 @@ public class PlayerStatus : NetworkBehaviour
     [SerializeField] private float fatiguePerPower = 1.0f;   // 威力1あたりの疲労蓄積量
     [SerializeField] private float fatigueScale = 0.01f;     // 疲労1あたりの倍率上昇
 
+    private readonly NetworkVariable<int> roundScore = new ();
+    public int RoundScore => this.roundScore.Value;
+
     private readonly NetworkVariable<float> fatigue = new ();
     public float Fatigue => this.fatigue.Value;
 
@@ -102,6 +105,14 @@ public class PlayerStatus : NetworkBehaviour
         this.fatigue.Value += power * this.fatiguePerPower;
     }
 
+    /// <summary>サーバーのみ。ラウンド中の得点を加算する</summary>
+    public void AddRoundScore(int delta)
+    {
+        Debug.Log($"AddRoundScore({delta}) called on {this.name}");
+        if (!IsServer) return;
+        this.roundScore.Value += delta;
+    }
+
     /// <summary>ラウンド開始時にすべて解除する</summary>
     public void ResetForRound()
     {
@@ -110,6 +121,7 @@ public class PlayerStatus : NetworkBehaviour
         this.effects.Clear();
         this.stacks.Clear();
         this.fatigue.Value = 0f;
+        this.roundScore.Value = 0;
         this.Recalculate();
     }
 

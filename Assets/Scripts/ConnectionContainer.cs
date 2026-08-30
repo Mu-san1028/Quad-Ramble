@@ -30,6 +30,8 @@ public class ConnectionContainer : NetworkBehaviour
     public event System.Action<int> OnConnectionsChanged;
     public event System.Action OnResultsReceived;
     public static event System.Action<ConnectionContainer> OnInstanceReady;
+    private readonly NetworkVariable<int> currentRound = new ();
+    public int CurrentRound => this.currentRound.Value;
 
     public override void OnNetworkSpawn()
     {
@@ -155,4 +157,9 @@ public class ConnectionContainer : NetworkBehaviour
         GameManager.Instance.ReturnToTitle();
     }
 
+    public void SetCurrentRound(int round)
+    {
+        if (!IsServer) return;
+        this.currentRound.Value = round;
+    }
 }

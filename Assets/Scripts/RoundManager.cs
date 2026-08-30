@@ -13,12 +13,26 @@ public class RoundManager : NetworkBehaviour
     [Header("このラウンドに出現するアイテム")]
     [SerializeField] private Items[] availableItems;
     [SerializeField] private Items[] blockDropItems;
+
+    [Header("ラウンドの情報")]
+    [SerializeField] private string stageName;
+    [SerializeField] private string author;
+    [SerializeField] private string description;
+
+    public string StageName   => this.stageName;
+    public string Author      => this.author;
+    public string Description => this.description;
+
     public Items[] BlockDropItems => this.blockDropItems;
     public Items[] AvailableItems => this.availableItems;
 
     private PlayerSpawner playerSpawner;
     private RoundScoring scoring;
     private bool isRoundOver = false;
+    [SerializeField] private float introDuration = 5f;
+    private readonly NetworkVariable<float> introRemaining = new ();
+    public float IntroRemaining => this.introRemaining.Value;
+    public bool IsIntro => this.introRemaining.Value > 0f;
     private readonly WaitForSeconds beforeSceneTransition = new (3);
 
     // サーバーだけが書き込み、全員が読む
@@ -50,6 +64,8 @@ public class RoundManager : NetworkBehaviour
 
         this.remainingTime.Value = this.roundDuration;
         this.countdownRemaining.Value = this.countdownDuration;
+        this.introRemaining.Value = this.introDuration;
+
     }
 
     public override void OnNetworkDespawn()
@@ -60,6 +76,12 @@ public class RoundManager : NetworkBehaviour
     void Update()
     {
         if (!IsServer || this.isRoundOver) return;
+
+        if (this.introRemaining.Value > 0f)
+        {
+            this.introRemaining.Value = Mathf.Max(0f, this.introRemaining.Value - Time.deltaTime);
+            return;
+        }
 
         // カウントダウン中はラウンド時間を減らさない
         if (this.countdownRemaining.Value > 0f)

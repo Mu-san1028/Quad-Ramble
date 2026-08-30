@@ -15,6 +15,13 @@ public class CountdownUI : MonoBehaviour
             return;
         }
 
+        if (RoundManager.Instance.IsIntro)
+        {
+            this.SetVisible(false);
+            return;
+        }
+
+
         float remaining = RoundManager.Instance.CountdownRemaining;
 
         if (remaining <= 0f)

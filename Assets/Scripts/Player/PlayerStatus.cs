@@ -18,8 +18,8 @@ public class PlayerStatus : NetworkBehaviour
     }
 
     [Header("疲労設定")]
-    [SerializeField] private float fatiguePerPower = 1.0f;   // 威力1あたりの疲労蓄積量
-    [SerializeField] private float fatigueScale = 0.01f;     // 疲労1あたりの倍率上昇
+    [SerializeField] private float fatiguePerPower = 5.0f;   // 威力1あたりの疲労蓄積量
+    [SerializeField] private float fatigueScale = 0.5f;     // 疲労1あたりの倍率上昇
 
     private readonly NetworkVariable<int> roundScore = new ();
     public int RoundScore => this.roundScore.Value;

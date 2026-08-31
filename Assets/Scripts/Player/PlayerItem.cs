@@ -50,7 +50,7 @@ public class PlayerItem : NetworkBehaviour
         this.ApplyItemClientRpc(item);
     }
 
-    [ClientRpc]
+    [Rpc(SendTo.ClientsAndHost)]
     private void ApplyItemClientRpc(Items item)
     {
         ItemBase data = ItemDatabase.Instance.GetItem(item);

@@ -166,7 +166,7 @@ public class PlayerController : NetworkBehaviour
         EliminateClientRpc();
     }
 
-    [ClientRpc]
+    [Rpc(SendTo.ClientsAndHost)]
     private void EliminateClientRpc()
     {
         isEliminated = true;
@@ -184,7 +184,7 @@ public class PlayerController : NetworkBehaviour
         StopOrMovePlayerClientRpc(movable);
     }
 
-    [ClientRpc]
+    [Rpc(SendTo.ClientsAndHost)]
     private void StopOrMovePlayerClientRpc(bool movable)
     {
         controller.enabled = movable;
@@ -197,7 +197,7 @@ public class PlayerController : NetworkBehaviour
         ReviveClientRpc();
     }
 
-    [ClientRpc]
+    [Rpc(SendTo.ClientsAndHost)]
     private void ReviveClientRpc()
     {
         isEliminated = false;
@@ -213,7 +213,7 @@ public class PlayerController : NetworkBehaviour
         TeleportClientRpc(position, rotation);
     }
 
-    [ClientRpc]
+    [Rpc(SendTo.ClientsAndHost)]
     private void TeleportClientRpc(Vector3 position, Quaternion rotation)
     {
         if (!IsOwner) return;
@@ -491,7 +491,7 @@ public class PlayerController : NetworkBehaviour
         Debug.Log($"{weaponData.itemName} を設置（未実装）");
     }
 
-    [ServerRpc]
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Owner)]
     void SubmitShootServerRpc(Vector3 hitPoint, ulong targetId, Vector3 direction, Items weaponKey)
     {
         PlayShootEffectClientRpc(hitPoint);
@@ -503,7 +503,7 @@ public class PlayerController : NetworkBehaviour
         this.ApplyKnockback(targetId, direction, power);
     }
 
-    [ServerRpc]
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Owner)]
     void BreakBlockServerRpc(ulong blockId, Items weaponKey)
     {
         if (!NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(blockId, out var netObj)) return;
@@ -532,7 +532,7 @@ public class PlayerController : NetworkBehaviour
         ApplyKnockbackClientRpc(targetId, force);
     }
 
-    [ClientRpc]
+    [Rpc(SendTo.ClientsAndHost)]
     void ApplyKnockbackClientRpc(ulong targetId, Vector3 knockbackForce)
     {
         if (NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(targetId, out var netObj))
@@ -545,7 +545,7 @@ public class PlayerController : NetworkBehaviour
         }
     }
 
-    [ClientRpc]
+    [Rpc(SendTo.ClientsAndHost)]
     void PlayShootEffectClientRpc(Vector3 hitPoint)
     {
         if (IsOwner) return;
@@ -553,7 +553,7 @@ public class PlayerController : NetworkBehaviour
         effects.PlayShoot(gameObject.name);
     }
 
-    [ServerRpc]
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Owner)]
     void ThrowProjectileServerRpc(Vector3 startPos, Vector3 initialVelocity, Items weaponKey)
     {
         var wd = ItemDatabase.Instance.GetItem(weaponKey) as WeaponData;
@@ -594,7 +594,7 @@ public class PlayerController : NetworkBehaviour
         preview.Draw(trajectoryPoints, landing, hit);
     }
 
-    [ClientRpc]
+    [Rpc(SendTo.ClientsAndHost)]
     void ShowProjectileClientRpc(Vector3 startPos, Vector3 initialVelocity, float flightTime, float gravity, Items weaponKey)
     {
         var wd = ItemDatabase.Instance.GetItem(weaponKey) as WeaponData;
@@ -632,7 +632,7 @@ public class PlayerController : NetworkBehaviour
         }
     }
 
-    [ClientRpc]
+    [Rpc(SendTo.ClientsAndHost)]
     void ExplosionEffectClientRpc(Vector3 center, float radius)
     {
         effects.PlayExplosion(center, radius);

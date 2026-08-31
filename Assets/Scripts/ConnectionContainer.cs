@@ -74,8 +74,8 @@ public class ConnectionContainer : NetworkBehaviour
         this.BroadcastRoster();
     }
 
-    [ClientRpc]
-    private void SyncRosterClientRpc(RosterEntry[] roster, ClientRpcParams clientRpcParams = default)
+    [Rpc(SendTo.ClientsAndHost)]
+    private void SyncRosterClientRpc(RosterEntry[] roster)
     {
         if (!IsServer)
         {
@@ -98,11 +98,7 @@ public class ConnectionContainer : NetworkBehaviour
             .Select(c => new RosterEntry { ClientId = c.ClientId, Name = c.Name })
             .ToArray();
 
-        var targets = NetworkManager.Singleton.ConnectedClientsIds.ToArray();
-        this.SyncRosterClientRpc(roster, new ClientRpcParams
-        {
-            Send = new ClientRpcSendParams { TargetClientIds = targets }
-        });
+        this.SyncRosterClientRpc(roster);
     }
 
 
@@ -135,7 +131,7 @@ public class ConnectionContainer : NetworkBehaviour
         BroadcastFinalScoresClientRpc(entries);
     }
 
-    [ClientRpc]
+    [Rpc(SendTo.ClientsAndHost)]
     private void BroadcastFinalScoresClientRpc(ResultEntry[] entries)
     {
         Result = entries
@@ -151,7 +147,7 @@ public class ConnectionContainer : NetworkBehaviour
         this.ReturnToTitleClientRpc();
     }
 
-    [ClientRpc]
+    [Rpc(SendTo.ClientsAndHost)]
     private void ReturnToTitleClientRpc()
     {
         GameManager.Instance.ReturnToTitle();

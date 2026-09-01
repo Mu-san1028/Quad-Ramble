@@ -15,6 +15,7 @@ public class WeaponUI : MonoBehaviour
         public Image icon;                    // 武器アイコン
         public TextMeshProUGUI fallbackText;  // アイコン未設定のときだけ武器名を出す
         public TextMeshProUGUI ammoText;      // 残弾数
+        public Image cooldown;                // クールダウンの円形フィル
         // public GameObject selection;       // 選択中を示す四隅／外枠。今は不透明度で代用している
     }
 
@@ -93,6 +94,12 @@ public class WeaponUI : MonoBehaviour
         SetAlpha(view.icon, alpha);
         SetAlpha(view.fallbackText, alpha);
         SetAlpha(view.ammoText, alpha);
+
+        // クールダウンはスロットごと。fillAmount 0 は何も描かれないので SetActive は不要
+        if (view.cooldown != null)
+        {
+            view.cooldown.fillAmount = hasItem ? slot.CooldownRemaining : 0f;
+        }
 
         // 四隅の枠で選択を示す案。暫定対応が済んだら戻す
         // bool showSelection = isEquipped && hasItem;

@@ -46,6 +46,8 @@ public class PlayerController : NetworkBehaviour
     public bool IsControllable => (IsOwner || this.allowOfflineControl) && !isEliminated;
     private readonly RaycastHit[] aimHits = new RaycastHit[8];
 
+    private Coroutine windupRoutine;   // 溜め中のコルーチン。ラウンドをまたいで残さない
+
 
     [Header("射撃・Raycast設定")]
     public LayerMask shootableLayers; // 撃てる対象のレイヤー（Player自身を除外するため）
@@ -233,6 +235,14 @@ public class PlayerController : NetworkBehaviour
         // 速度もリセット
         velocity = Vector3.zero;
         impact = Vector3.zero;
+
+        // 溜めをラウンドをまたいで持ち越さない。
+        // クールダウンはスロット側にあり、ClearAllWeapons で一緒に消える
+        if (this.windupRoutine != null)
+        {
+            StopCoroutine(this.windupRoutine);
+            this.windupRoutine = null;
+        }
     }
     #endregion
 
@@ -293,6 +303,14 @@ public class PlayerController : NetworkBehaviour
     {
         if (!this.IsControllable) return;
         if (!value.isPressed) return;
+        if (this.windupRoutine != null) return;      // 溜め中は他の武器も撃てない
+
+        // 溜めている間に持ち替えられても入れ替わらないよう、押した瞬間の武器を捕まえる
+        ItemSlot slot = this.playerItem.CurrentWeapon;
+        if (slot == null || !slot.IsReady) return;   // このスロットのクールダウン中
+
+        var weaponData = slot.itemData as WeaponData;
+        if (weaponData == null) return;
 
         if (!this.playerItem.TryConsumeAmmo())
         {
@@ -300,8 +318,20 @@ public class PlayerController : NetworkBehaviour
             return;
         }
 
-        this.FireCurrentWeapon();
-        this.playerItem.DiscardIfEmpty();
+        // 1周期 = 溜め + クールダウン。スロットごとに持つので他の武器を巻き込まない
+        if(slot.currentAmount > 0) slot.nextFireTime = Time.time + weaponData.attackWindup + weaponData.reloadTime;
+
+        // 溜めが無い武器はコルーチンを挟まない。挟むと、本体が同期実行を終えた後に
+        // StartCoroutine の戻り値が windupRoutine を上書きし、二度と撃てなくなる
+        if (weaponData.attackWindup > 0f)
+        {
+            this.windupRoutine = StartCoroutine(this.FireAfterWindup(weaponData));
+        }
+        else
+        {
+            this.FireWeapon(weaponData);
+            this.playerItem.DiscardIfEmpty();
+        }
     }
     #endregion
 
@@ -426,11 +456,25 @@ public class PlayerController : NetworkBehaviour
         controller.Move(velocity * Time.deltaTime);
     }
 
-    private void FireCurrentWeapon()
+    /// <summary>溜めを待ってから撃つ。attackWindup が 0 より大きい武器だけが通る</summary>
+    private IEnumerator FireAfterWindup(WeaponData weaponData)
     {
-        var weaponData = this.playerItem.CurrentWeapon?.itemData as WeaponData;
-        if (weaponData == null) return;
+        this.effects.PlayWindup(gameObject.name, weaponData.attackWindup);
+        yield return new WaitForSeconds(weaponData.attackWindup);
 
+        // 中断して抜ける場合も必ず先に解除する。残すと二度と撃てなくなる
+        this.windupRoutine = null;
+
+        // 溜めている間に脱落・ラウンド終了が起きたら撃たない
+        if (!this.IsControllable) yield break;
+        if (GameManager.Instance == null || GameManager.Instance.currentState != GameState.Playing) yield break;
+
+        this.FireWeapon(weaponData);
+        this.playerItem.DiscardIfEmpty();
+    }
+
+    private void FireWeapon(WeaponData weaponData)
+    {
         effects.PlayShoot(gameObject.name);
 
         switch (weaponData.weaponType)

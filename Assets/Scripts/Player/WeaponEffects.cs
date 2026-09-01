@@ -15,6 +15,13 @@ public class WeaponEffects
         Debug.Log($"【{ownerName}】が撃った！");
     }
 
+    /// <summary>溜めの見た目。attackWindup が 0 の武器では呼ばれない</summary>
+    public void PlayWindup(string ownerName, float duration)
+    {
+        // TODO: 構えモーション・チャージ音・溜めエフェクトをここに
+        Debug.Log($"【{ownerName}】が構えた（{duration}秒）");
+    }
+
     public void PlayExplosion(Vector3 center, float radius)
     {
         Debug.Log($"[Explosion] center: {center}, radius: {radius}");

@@ -12,7 +12,7 @@ public class BreakableBlock : NetworkBehaviour
 {
     [SerializeField] private GameObject blockVisual;   // 壊れる前の見た目
     [SerializeField] private Collider blockCollider;   // 壁としての当たり判定
-    [SerializeField] private GameObject dropVisual;    // 落ちている強化アイテムの見た目
+    [SerializeField] private GameObject dropVisual;    // 落ちたアイテムのモデルを差し込む場所
     [SerializeField] private Collider dropTrigger;     // 拾うためのトリガー
 
     [SerializeField] private string droppedLayerName = "Default";
@@ -29,6 +29,7 @@ public class BreakableBlock : NetworkBehaviour
 
     private BlockAnimation blockAnimation;
     private Coroutine hideRoutine;
+    private GameObject dropInstance;   // 差し込んだモデル。状態が変わったら捨てる
 
     private void Awake()
     {
@@ -122,11 +123,36 @@ public class BreakableBlock : NetworkBehaviour
         if (this.dropVisual    != null) this.dropVisual.SetActive(s == BlockState.Dropped);
         if (this.dropTrigger   != null) this.dropTrigger.enabled  = (s == BlockState.Dropped);
 
+        this.ApplyDropModel(s);
+
         // 落ちたアイテムに弾道・照準が反応しないよう、壊れたらレイヤーを戻す
         this.gameObject.layer = (s == BlockState.Intact) ? this.intactLayerId : this.droppedLayerId;
 
         // 消す側は PlayBreakThenHide に任せる。ここでは戻すときだけ扱う
         if (this.blockVisual != null && s == BlockState.Intact) this.blockVisual.SetActive(true);
+    }
+
+    /// <summary>
+    /// 落ちたアイテムのモデルを差し込む。見た目だけなので各クライアントがローカルに生成する。
+    /// droppedItem は state より先に届くので、途中参加でも正しいモデルが出る
+    /// </summary>
+    private void ApplyDropModel(BlockState s)
+    {
+        if (s != BlockState.Dropped)
+        {
+            if (this.dropInstance != null) Destroy(this.dropInstance);
+            this.dropInstance = null;
+            return;
+        }
+
+        if (this.dropInstance != null) return;   // 既に出ている
+        if (this.dropVisual == null || ItemDatabase.Instance == null) return;
+
+        var data = ItemDatabase.Instance.GetItem(this.droppedItem.Value);
+        if (data == null || data.itemPrefab == null) return;   // 未設定なら何も出さない
+
+        // 第3引数 false でマウントのローカル座標に置く。true だとプレハブの世界座標を保とうとする
+        this.dropInstance = Instantiate(data.itemPrefab, this.dropVisual.transform, false);
     }
 
     /// <summary>当たり判定はもう切れている。見た目だけアニメの分だけ残す</summary>

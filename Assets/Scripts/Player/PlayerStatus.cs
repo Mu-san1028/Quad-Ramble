@@ -18,8 +18,11 @@ public class PlayerStatus : NetworkBehaviour
     }
 
     [Header("疲労設定")]
-    [SerializeField] private float fatiguePerPower = 1.0f;   // 威力1あたりの疲労蓄積量
-    [SerializeField] private float fatigueScale = 0.01f;     // 疲労1あたりの倍率上昇
+    [SerializeField] private float fatiguePerPower = 5.0f;   // 威力1あたりの疲労蓄積量
+    [SerializeField] private float fatigueScale = 0.5f;     // 疲労1あたりの倍率上昇
+
+    private readonly NetworkVariable<int> roundScore = new ();
+    public int RoundScore => this.roundScore.Value;
 
     private readonly NetworkVariable<float> fatigue = new ();
     public float Fatigue => this.fatigue.Value;
@@ -29,12 +32,26 @@ public class PlayerStatus : NetworkBehaviour
 
     private readonly List<ActiveEffect> effects = new ();
 
-    // サーバーが書き、全員が読む。x=Speed, y=Jump, z=Turn
+    // サーバーが書き、全員が読む。どちらも x=Speed, y=Jump, z=Turn
     private readonly NetworkVariable<Vector3> bonuses = new ();
+    private readonly NetworkVariable<Vector3Int> stackCounts = new ();
 
     public float SpeedBonus => this.bonuses.Value.x;
     public float JumpBonus  => this.bonuses.Value.y;
     public float TurnBonus  => this.bonuses.Value.z;
+
+    /// <summary>自分のプレイヤーの PlayerStatus。UI がここから読む</summary>
+    public static PlayerStatus Local { get; private set; }
+
+    public override void OnNetworkSpawn()
+    {
+        if (IsOwner) Local = this;
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        if (Local == this) Local = null;
+    }
 
     private void Update()
     {
@@ -72,17 +89,31 @@ public class PlayerStatus : NetworkBehaviour
         this.Recalculate();
     }
 
-    /// <summary>恒久強化。ラウンド終了まで消えない</summary>
-    public void AddPermanent(float speed, float jump, float turn)
+    /// <summary>恒久強化。上限に達していたら false を返す</summary>
+    public bool AddPermanent(PermanentUpgrade data)
     {
-        if (!IsServer) return;
+        if (!IsServer) return false;
+
+        int index = (int)data.kind;
+        Vector3Int counts = this.stackCounts.Value;
+        if (counts[index] >= data.maxStacks) return false;
+
+        // 構造体なので、コピーして書き換えて代入し直さないと同期されない
+        counts[index] += 1;
+        this.stackCounts.Value = counts;
 
         this.effects.Add(new ActiveEffect
         {
-            SpeedBonus = speed, JumpBonus = jump, TurnBonus = turn, IsPermanent = true
+            SpeedBonus = data.speedBoost,
+            JumpBonus  = data.jumpBoost,
+            TurnBonus  = -data.turnSpeedBoost,
+            IsPermanent = true
         });
         this.Recalculate();
+        return true;
     }
+
+    public int GetStacks(UpgradeKind kind) => this.stackCounts.Value[(int)kind];
 
     /// <summary>攻撃を受けたときに疲労を蓄積する（サーバーのみ）</summary>
     public void AddFatigue(float power)
@@ -91,13 +122,23 @@ public class PlayerStatus : NetworkBehaviour
         this.fatigue.Value += power * this.fatiguePerPower;
     }
 
+    /// <summary>サーバーのみ。ラウンド中の得点を加算する</summary>
+    public void AddRoundScore(int delta)
+    {
+        Debug.Log($"AddRoundScore({delta}) called on {this.name}");
+        if (!IsServer) return;
+        this.roundScore.Value += delta;
+    }
+
     /// <summary>ラウンド開始時にすべて解除する</summary>
     public void ResetForRound()
     {
         if (!IsServer) return;
 
         this.effects.Clear();
+        this.stackCounts.Value = Vector3Int.zero;
         this.fatigue.Value = 0f;
+        this.roundScore.Value = 0;
         this.Recalculate();
     }
 

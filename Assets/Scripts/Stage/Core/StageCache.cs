@@ -187,8 +187,7 @@ public static class StageCacheRegistry
     private static void Hook()
     {
         SceneManager.sceneLoaded -= OnSceneLoaded;
-        SceneManager.sceneLoaded += OnSceneLoaded;
-
+        SceneManager.sceneLoaded += OnSceneLoaded;       
         StageNetworkCacheHook.Install();
     }
 

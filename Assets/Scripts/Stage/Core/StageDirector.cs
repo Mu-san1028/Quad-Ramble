@@ -8,11 +8,14 @@ using UnityEngine;
 /// 回る床を 200 個置けば、中身が空でも 200 回の呼び出しが毎フレーム発生する。
 /// ここで配列を 1 周するだけにすれば、その固定費はオブジェクト数によらず 1 回で済む。
 ///
+<<<<<<< HEAD
 /// 「1 本化」で減るのは呼び出しの固定費であって、ギミック 1 個あたりの仕事そのものではない。
 /// そこで、ギミック 1 個あたりのコストにも効くよう、更新対象を<b>実装クラスごとの束</b>に分けて回す
 /// （<see cref="StageTypeBuckets{T}"/>）。同じ束の中では呼び先の型が 1 つに固定されるので、
 /// インターフェース越しの間接呼び出しの分岐予測が当たりやすく、参照するメモリも近くにまとまる。
 ///
+=======
+>>>>>>> 7133c918f05d6b6edf426e8305f4a821c9b9b58d
 /// シーンに置く必要はない。最初に Register が呼ばれた時点で自動生成される。
 /// </summary>
 [DefaultExecutionOrder(-100)]
@@ -22,6 +25,7 @@ public sealed class StageDirector : MonoBehaviour
     private static StageDirector instance;
     private static bool isShuttingDown;
 
+<<<<<<< HEAD
     private readonly StageTypeBuckets<IStageTick> tickers = new StageTypeBuckets<IStageTick>();
     private readonly StageTypeBuckets<IStageFixedTick> fixedTickers = new StageTypeBuckets<IStageFixedTick>();
     private readonly StageTimerWheel timers = new StageTimerWheel();
@@ -30,6 +34,12 @@ public sealed class StageDirector : MonoBehaviour
     private const int NetworkHookRetryInterval = 120; // フレーム
     private int hookRetryCountdown;
 
+=======
+    private readonly StageRegistry<IStageTick> tickers = new StageRegistry<IStageTick>();
+    private readonly StageRegistry<IStageFixedTick> fixedTickers = new StageRegistry<IStageFixedTick>();
+    private readonly StageTimerWheel timers = new StageTimerWheel();
+
+>>>>>>> 7133c918f05d6b6edf426e8305f4a821c9b9b58d
     /// <summary>デバッグ表示用。今フレーム回している対象数。</summary>
     public static int TickCount => instance != null ? instance.tickers.Count : 0;
     public static int FixedTickCount => instance != null ? instance.fixedTickers.Count : 0;
@@ -77,6 +87,7 @@ public sealed class StageDirector : MonoBehaviour
     {
         float dt = Time.deltaTime;
 
+<<<<<<< HEAD
         // 実装クラスごとの束を順に回す。
         // Count / Items を毎回読み直すのは、Tick の中で登録・解除されても壊れないようにするため。
         var buckets = this.tickers.Buckets;
@@ -100,12 +111,22 @@ public sealed class StageDirector : MonoBehaviour
             this.hookRetryCountdown = NetworkHookRetryInterval;
             StageNetworkCacheHook.Install();
         }
+=======
+        // Count / Items を毎回読み直すのは、Tick の中で登録・解除されても壊れないようにするため。
+        for (int i = 0; i < this.tickers.Count; i++)
+        {
+            this.tickers.Items[i].Tick(dt);
+        }
+
+        this.timers.Advance(dt);
+>>>>>>> 7133c918f05d6b6edf426e8305f4a821c9b9b58d
     }
 
     private void FixedUpdate()
     {
         float fdt = Time.fixedDeltaTime;
 
+<<<<<<< HEAD
         var buckets = this.fixedTickers.Buckets;
         for (int b = 0; b < buckets.Count; b++)
         {
@@ -114,6 +135,11 @@ public sealed class StageDirector : MonoBehaviour
             {
                 bucket.Items[i].FixedTick(fdt);
             }
+=======
+        for (int i = 0; i < this.fixedTickers.Count; i++)
+        {
+            this.fixedTickers.Items[i].FixedTick(fdt);
+>>>>>>> 7133c918f05d6b6edf426e8305f4a821c9b9b58d
         }
     }
 

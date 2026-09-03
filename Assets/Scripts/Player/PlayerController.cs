@@ -114,7 +114,7 @@ public class PlayerController : NetworkBehaviour
         if (IsOwner) PairInputDevice(input);
 
         // 照準の表示は自分の画面にだけ出す
-        if (!IsOwner) preview.Show(false);
+        if (!IsOwner) preview.Hide();
     }
 
     public override void OnNetworkDespawn()
@@ -627,7 +627,14 @@ public class PlayerController : NetworkBehaviour
 
         if (!isAiming || !IsControllable || weaponData == null || weaponData.weaponType != WeaponType.Throw)
         {
-            preview.Show(false);
+            preview.Hide();
+            return;
+        }
+
+        // まっすぐ飛ぶ武器は着弾点がレティクルそのものなので、線を引いても情報が増えない
+        if (weaponData.gravityScale <= 0f)
+        {
+            preview.DrawCrosshair();
             return;
         }
 

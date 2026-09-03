@@ -15,6 +15,8 @@ public class WeaponUI : MonoBehaviour
         public Image icon;                    // 武器アイコン
         public TextMeshProUGUI fallbackText;  // アイコン未設定のときだけ武器名を出す
         public TextMeshProUGUI ammoText;      // 残弾数
+        public Image cooldown;                // クールダウンの円形フィル
+        // public GameObject selection;       // 選択中を示す四隅／外枠。今は不透明度で代用している
     }
 
     [Header("スロット表示（左から順に）")]
@@ -24,6 +26,10 @@ public class WeaponUI : MonoBehaviour
     [SerializeField] private Color equippedColor = new Color(1f, 0.85f, 0.2f, 0.9f);
     [SerializeField] private Color idleColor = new Color(1f, 1f, 1f, 0.3f);
     [SerializeField] private Color emptyColor = new Color(0f, 0f, 0f, 0.2f);
+
+    [Header("選択の表示")]
+    [Range(0f, 1f)]
+    [SerializeField] private float dimAlpha = 0.35f;   // 選択中でないスロットの中身の不透明度
 
     private Canvas canvas;
 
@@ -40,44 +46,12 @@ public class WeaponUI : MonoBehaviour
         if (this.canvas.enabled != visible) this.canvas.enabled = visible;
         if (!visible) return;
 
-        int left  = this.FindNeighbor(item, -1);
-        int right = this.FindNeighbor(item, +1);
-
-        if (right == left) right = -1; // 左右が同じスロットを指すときは右側を非表示にする
-
-        // 左：Lで持ち替わる武器 / 中央：装備中 / 右：Rで持ち替わる武器
-        this.RenderAt(0, item, left, false);
-        this.RenderAt(1, item, item.CurrentWeaponIndex, true);
-        this.RenderAt(2, item, right, false);
-    }
-
-    private void RenderAt(int position, PlayerItem item, int weaponIndex, bool isEquipped)
-    {
-        if (position >= this.slots.Length) return;
-
-        ItemSlot data = weaponIndex >= 0 ? item.Weapons[weaponIndex] : null;
-        this.Render(this.slots[position], data, isEquipped);
-    }
-
-    /// <summary>
-    /// 装備中から direction 方向へ、中身のあるスロットを1つ辿る。
-    /// PlayerItem.SwitchWeapon と同じ規則（空スロットは飛ばす）。見つからなければ -1
-    /// </summary>
-    private int FindNeighbor(PlayerItem item, int direction)
-    {
-        int count = item.Weapons.Length;
-        int step = direction > 0 ? 1 : -1;
-
-        // i < count にすることで、自分自身は候補に入らない
-        for (int i = 1; i < count; i++)
+        for (int i = 0; i < this.slots.Length; i++)
         {
-            int index = ((item.CurrentWeaponIndex + i * step) % count + count) % count;
-            ItemSlot slot = item.Weapons[index];
-            if (slot != null && slot.itemData != null) return index;
+            ItemSlot data = i < item.Weapons.Length ? item.Weapons[i] : null;
+            this.Render(this.slots[i], data, i == item.CurrentWeaponIndex);
         }
-        return -1;
     }
-
 
     private void Render(SlotView view, ItemSlot slot, bool isEquipped)
     {
@@ -113,5 +87,35 @@ public class WeaponUI : MonoBehaviour
             view.ammoText.enabled = hasItem;
             if (hasItem) view.ammoText.text = slot.currentAmount.ToString();
         }
+
+        // 選択中でないスロットは中身を薄くする。
+        // 背景色は将来レアリティの表示に使う予定なので、区別はそちらに頼らない
+        float alpha = isEquipped ? 1f : this.dimAlpha;
+        SetAlpha(view.icon, alpha);
+        SetAlpha(view.fallbackText, alpha);
+        SetAlpha(view.ammoText, alpha);
+
+        // クールダウンはスロットごと。fillAmount 0 は何も描かれないので SetActive は不要
+        if (view.cooldown != null)
+        {
+            view.cooldown.fillAmount = hasItem ? slot.CooldownRemaining : 0f;
+        }
+
+        // 四隅の枠で選択を示す案。暫定対応が済んだら戻す
+        // bool showSelection = isEquipped && hasItem;
+        // if (view.selection != null && view.selection.activeSelf != showSelection)
+        // {
+        //     view.selection.SetActive(showSelection);
+        // }
+    }
+
+    /// <summary>rgb は保ったまま、不透明度だけ差し替える</summary>
+    private static void SetAlpha(Graphic graphic, float alpha)
+    {
+        if (graphic == null) return;
+
+        Color color = graphic.color;
+        color.a = alpha;
+        graphic.color = color;
     }
 }

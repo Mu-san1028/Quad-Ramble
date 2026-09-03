@@ -57,6 +57,7 @@ public class GameManager : MonoBehaviour
         {
             string nextScene = stageNames[CurrentRound];
             CurrentRound++;
+            ConnectionContainer.Instance?.SetCurrentRound(CurrentRound);
             NetworkManager.Singleton.SceneManager.LoadScene(nextScene, UnityEngine.SceneManagement.LoadSceneMode.Single);
         }
         else

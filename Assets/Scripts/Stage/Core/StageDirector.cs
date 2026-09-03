@@ -26,10 +26,6 @@ public sealed class StageDirector : MonoBehaviour
     // NetworkManager は後から生成されることがあるので、捕まえるまで時々試す。
     private const int NetworkHookRetryInterval = 120; // フレーム
     private int hookRetryCountdown;
-
-    private readonly StageRegistry<IStageTick> tickers = new StageRegistry<IStageTick>();
-    private readonly StageRegistry<IStageFixedTick> fixedTickers = new StageRegistry<IStageFixedTick>();
-    private readonly StageTimerWheel timers = new StageTimerWheel();
     /// <summary>デバッグ表示用。今フレーム回している対象数。</summary>
     public static int TickCount => instance != null ? instance.tickers.Count : 0;
     public static int FixedTickCount => instance != null ? instance.fixedTickers.Count : 0;

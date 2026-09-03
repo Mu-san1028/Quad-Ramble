@@ -31,14 +31,27 @@ public class PlayerStatus : NetworkBehaviour
     public float KnockbackMultiplier => 1f + this.fatigue.Value * this.fatigueScale;
 
     private readonly List<ActiveEffect> effects = new ();
-    private readonly Dictionary<UpgradeKind, int> stacks = new ();
 
-    // サーバーが書き、全員が読む。x=Speed, y=Jump, z=Turn
+    // サーバーが書き、全員が読む。どちらも x=Speed, y=Jump, z=Turn
     private readonly NetworkVariable<Vector3> bonuses = new ();
+    private readonly NetworkVariable<Vector3Int> stackCounts = new ();
 
     public float SpeedBonus => this.bonuses.Value.x;
     public float JumpBonus  => this.bonuses.Value.y;
     public float TurnBonus  => this.bonuses.Value.z;
+
+    /// <summary>自分のプレイヤーの PlayerStatus。UI がここから読む</summary>
+    public static PlayerStatus Local { get; private set; }
+
+    public override void OnNetworkSpawn()
+    {
+        if (IsOwner) Local = this;
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        if (Local == this) Local = null;
+    }
 
     private void Update()
     {
@@ -81,9 +94,13 @@ public class PlayerStatus : NetworkBehaviour
     {
         if (!IsServer) return false;
 
-        this.stacks.TryGetValue(data.kind, out int current);
-        if (current >= data.maxStacks) return false;
-        this.stacks[data.kind] = current + 1;
+        int index = (int)data.kind;
+        Vector3Int counts = this.stackCounts.Value;
+        if (counts[index] >= data.maxStacks) return false;
+
+        // 構造体なので、コピーして書き換えて代入し直さないと同期されない
+        counts[index] += 1;
+        this.stackCounts.Value = counts;
 
         this.effects.Add(new ActiveEffect
         {
@@ -96,7 +113,7 @@ public class PlayerStatus : NetworkBehaviour
         return true;
     }
 
-    public int GetStacks(UpgradeKind kind) => this.stacks.TryGetValue(kind, out int n) ? n : 0;
+    public int GetStacks(UpgradeKind kind) => this.stackCounts.Value[(int)kind];
 
     /// <summary>攻撃を受けたときに疲労を蓄積する（サーバーのみ）</summary>
     public void AddFatigue(float power)
@@ -119,7 +136,7 @@ public class PlayerStatus : NetworkBehaviour
         if (!IsServer) return;
 
         this.effects.Clear();
-        this.stacks.Clear();
+        this.stackCounts.Value = Vector3Int.zero;
         this.fatigue.Value = 0f;
         this.roundScore.Value = 0;
         this.Recalculate();

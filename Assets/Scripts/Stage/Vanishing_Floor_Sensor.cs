@@ -1,35 +1,74 @@
 using UnityEngine;
-using System.Collections;
 
-public class Vanishing_Floor_Sensor : MonoBehaviour
+/// <summary>
+/// 消える床の踏み判定。子にある Vanishing_Floor に消滅を伝える。
+///
+/// 旧実装からの変更点:
+/// - コメントが文字化けしていたので書き直した（Shift-JIS のまま保存されていた）。
+/// - Debug.Log がタグ判定より前にあり、プレイヤー以外の Collider が触れるたびに
+///   ログが出ていた（毎回文字列を作るのでゴミにもなる）。判定の後ろへ移した。
+/// - Coroutine + WaitForSeconds をやめ、StageDirector のタイマーに寄せた。
+/// - Destroy をやめ、当たり判定を切るだけにした。床側と同じく ResetSensor() で戻せる。
+///   旧実装は床を Destroy した後もセンサーが床への参照を持っており、
+///   ラウンドをまたぐと破棄済みオブジェクトを触りにいく状態だった。
+/// </summary>
+public class Vanishing_Floor_Sensor : MonoBehaviour, IStageTimerTarget
 {
-    Vanishing_Floor VFScript;
-    bool isSwitchedOn;
-    private void Start()
+    private Vanishing_Floor VFScript;
+    private Collider sensorCollider;
+    private bool isSwitchedOn;
+
+    [Tooltip("床が消えてから、さらにこの秒数だけ待ってセンサーを止める（多重発火の防止）")]
+    [SerializeField] private float extraDisableDelay = 1f;
+
+    [SerializeField] private bool verboseLog = false;
+
+    private const int DisableToken = 2;
+
+    private void Awake()
     {
-         VFScript = this.gameObject.GetComponentInChildren<Vanishing_Floor>();
-    }
-    private void OnTriggerEnter(Collider collider)
-    {
-        if (!isSwitchedOn)
+        this.VFScript = this.GetComponentInChildren<Vanishing_Floor>();
+        this.sensorCollider = this.GetComponent<Collider>();
+
+        if (this.VFScript == null)
         {
-            Debug.Log("<color=yellow>�����鏰�������ɐڐG���܂����B</color>");
-            if (collider.gameObject.CompareTag("Player"))
-            {
-                VFScript.FloorVanish();
-                //�q�I�u�W�F�N�g��1�b��ɏ��ł�����E��d�O���̖h�~
-                isSwitchedOn = true;
-                StartCoroutine(DestroyDelayProcess());
-            }
+            Debug.LogError($"[Vanishing_Floor_Sensor] '{this.name}' の子に Vanishing_Floor がありません。", this);
         }
     }
-    private IEnumerator DestroyDelayProcess()
+
+    private void OnDisable() => StageDirector.CancelTimers(this);
+
+    private void OnTriggerEnter(Collider collider)
     {
-        Debug.Log("�Z���T�[���ŏ����J�n: " + Time.time);
+        if (this.isSwitchedOn) return;
+        if (!collider.CompareTag("Player")) return;
+        if (this.VFScript == null) return;
 
-        yield return new WaitForSeconds(VFScript.WaitingTime+1f);  // �� ��莞�ԁ{1�b�҂�
+        if (this.verboseLog) Debug.Log("<color=yellow>消える床の判定にプレイヤーが接触しました。</color>", this);
 
-        Debug.Log("�Z���T�[���ŏ������� " + Time.time);
-        Destroy(this.gameObject);
+        this.isSwitchedOn = true;
+        this.VFScript.FloorVanish();
+
+        // 床が消えたあとに再度発火しないよう、少し遅らせてセンサーを止める。
+        StageDirector.Schedule(this, this.VFScript.WaitingTime + this.extraDisableDelay, DisableToken);
+    }
+
+    public void OnStageTimer(int token)
+    {
+        if (token != DisableToken) return;
+
+        if (this.verboseLog) Debug.Log($"[Vanishing_Floor_Sensor] センサー停止: {Time.time}", this);
+
+        if (this.sensorCollider != null) this.sensorCollider.enabled = false;
+    }
+
+    /// <summary>次のラウンド用にセンサーと床をまとめて元に戻す。</summary>
+    public void ResetSensor()
+    {
+        StageDirector.CancelTimers(this);
+        this.isSwitchedOn = false;
+
+        if (this.sensorCollider != null) this.sensorCollider.enabled = true;
+        if (this.VFScript != null) this.VFScript.ResetFloor();
     }
 }

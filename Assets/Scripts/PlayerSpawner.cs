@@ -17,6 +17,9 @@ public class PlayerSpawner : MonoBehaviour
         //　スポーンポイントは事前に設定され、　spawnIndexに基づいて選択される
         Transform spawnPoint = spawnPoints[spawnIndex];
 
+        // 前のラウンドのセーブポイントを持ち越さない
+        SavePointRegistry.Clear(player);
+
         // プレイヤーをスポーンさせる
         player.Teleport(spawnPoint.position, spawnPoint.rotation);
         player.Revive();

@@ -7,12 +7,10 @@ using UnityEngine;
 /// Unity の Update / FixedUpdate は MonoBehaviour ごとにネイティブ側から呼び出される。
 /// 回る床を 200 個置けば、中身が空でも 200 回の呼び出しが毎フレーム発生する。
 /// ここで配列を 1 周するだけにすれば、その固定費はオブジェクト数によらず 1 回で済む。
-///
 /// 「1 本化」で減るのは呼び出しの固定費であって、ギミック 1 個あたりの仕事そのものではない。
 /// そこで、ギミック 1 個あたりのコストにも効くよう、更新対象を<b>実装クラスごとの束</b>に分けて回す
 /// （<see cref="StageTypeBuckets{T}"/>）。同じ束の中では呼び先の型が 1 つに固定されるので、
 /// インターフェース越しの間接呼び出しの分岐予測が当たりやすく、参照するメモリも近くにまとまる。
-///
 /// シーンに置く必要はない。最初に Register が呼ばれた時点で自動生成される。
 /// </summary>
 [DefaultExecutionOrder(-100)]
@@ -21,7 +19,6 @@ public sealed class StageDirector : MonoBehaviour
 {
     private static StageDirector instance;
     private static bool isShuttingDown;
-
     private readonly StageTypeBuckets<IStageTick> tickers = new StageTypeBuckets<IStageTick>();
     private readonly StageTypeBuckets<IStageFixedTick> fixedTickers = new StageTypeBuckets<IStageFixedTick>();
     private readonly StageTimerWheel timers = new StageTimerWheel();
@@ -29,7 +26,6 @@ public sealed class StageDirector : MonoBehaviour
     // NetworkManager は後から生成されることがあるので、捕まえるまで時々試す。
     private const int NetworkHookRetryInterval = 120; // フレーム
     private int hookRetryCountdown;
-
     /// <summary>デバッグ表示用。今フレーム回している対象数。</summary>
     public static int TickCount => instance != null ? instance.tickers.Count : 0;
     public static int FixedTickCount => instance != null ? instance.fixedTickers.Count : 0;

@@ -12,6 +12,8 @@ public class PlayerManager : MonoBehaviour
     public List<PlayerController> AllPlayers { get; private set; } = new ();
     public List<PlayerController> Players { get; private set; } = new ();
     public List<PlayerController> EliminatedPlayers { get; private set; } = new ();
+    // レースラウンド用。ゴールした順に入る
+    public List<PlayerController> FinishedPlayers { get; private set; } = new ();
 
     void Awake()
     {
@@ -39,6 +41,20 @@ public class PlayerManager : MonoBehaviour
         this.CheckRoundEnd();
     }
 
+    /// <summary>
+    /// レースラウンドでゴールしたときの処理。記録できたら true。
+    /// </summary>
+    public bool Finish(PlayerController player)
+    {
+        if (!this.Players.Remove(player)) return false;
+
+        this.FinishedPlayers.Add(player);
+        Debug.Log($"ゴール！ {this.FinishedPlayers.Count}着 / 残り{this.Players.Count}人");
+
+        this.CheckRoundEnd();
+        return true;
+    }
+
     public void AddPlayer(PlayerController player)
     {
         this.AllPlayers.Add(player);
@@ -50,6 +66,7 @@ public class PlayerManager : MonoBehaviour
         bool wasAlive = this.Players.Remove(player);
         this.AllPlayers.Remove(player);
         this.EliminatedPlayers.Remove(player);
+        this.FinishedPlayers.Remove(player);
 
         Debug.Log($"プレイヤーが離脱しました。残り人数: {this.Players.Count}");
 
@@ -92,7 +109,13 @@ public class PlayerManager : MonoBehaviour
     public List<List<PlayerController>> GetRanking()
     {
         var ranking = new List<List<PlayerController>>();
-        
+
+        // ゴールしたプレイヤーが最優先。着順がそのまま順位になる
+        foreach (var player in FinishedPlayers)
+        {
+            ranking.Add(new List<PlayerController> { player });
+        }
+
         if (Players.Count > 0)
         {
             // 残っているプレイヤーを1位として追加
@@ -110,6 +133,7 @@ public class PlayerManager : MonoBehaviour
     public void ResetPlayers()
     {
         EliminatedPlayers.Clear();
+        FinishedPlayers.Clear();
         Players = new List<PlayerController>(AllPlayers);
     }
 }

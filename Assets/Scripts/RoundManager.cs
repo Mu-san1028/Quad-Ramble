@@ -23,6 +23,14 @@ public class RoundManager : NetworkBehaviour
     public string Author      => this.author;
     public string Description => this.description;
 
+    [Header("このラウンドのBGM")]
+    [SerializeField] private AudioClip introBgm;   // イントロ〜カウントダウン中の静かな層
+    [SerializeField] private AudioClip mainBgm;    // Start! 以降の本編
+
+    // 未設定なら RoundAudio 側の既定曲が使われる
+    public AudioClip IntroBgm => this.introBgm;
+    public AudioClip MainBgm  => this.mainBgm;
+
     public Items[] BlockDropItems => this.blockDropItems;
     public Items[] AvailableItems => this.availableItems;
 

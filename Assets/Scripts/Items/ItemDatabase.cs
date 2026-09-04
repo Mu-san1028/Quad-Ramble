@@ -20,7 +20,9 @@ public enum Items
     // Permanent Upgrades
     JumpUp,
     SpeedUp,
-    TurnUp,
+    TurnUp,      // 廃止。値がずれると各シーンの抽選テーブルが壊れるので消さない
+    PowerUp,
+    RangeUp,
 }
 
 public class ItemDatabase : MonoBehaviour

@@ -22,7 +22,7 @@ public class PlayerController : NetworkBehaviour
 
     private float CurrentMoveSpeed  => (moveSpeed + (status != null ? status.SpeedBonus : 0f)) * (isAiming ? aimMoveSpeedMultiplier : 1f);
     private float CurrentJumpHeight => jumpHeight + (status != null ? status.JumpBonus  : 0f);
-    private float CurrentTurnSmoothTime => Mathf.Max(0.02f, turnSmoothTime + (status != null ? status.TurnBonus : 0f));
+    private float CurrentTurnSmoothTime => Mathf.Max(0.02f, turnSmoothTime);
 
     private CharacterController controller;
     [SerializeField] private TrajectoryPreview preview;
@@ -45,6 +45,10 @@ public class PlayerController : NetworkBehaviour
     private bool isEliminated = false;
     public bool IsControllable => (IsOwner || this.allowOfflineControl) && !isEliminated;
     private readonly RaycastHit[] aimHits = new RaycastHit[8];
+
+    // 攻撃側の強化倍率。status がまだ無いフレームでは 1 倍として扱う
+    private float PowerMultiplier => this.status != null ? this.status.PowerMultiplier : 1f;
+    private float RangeMultiplier => this.status != null ? this.status.RangeMultiplier : 1f;
 
     private Coroutine windupRoutine;   // 溜め中のコルーチン。ラウンドをまたいで残さない
 
@@ -465,9 +469,10 @@ public class PlayerController : NetworkBehaviour
         // 中断して抜ける場合も必ず先に解除する。残すと二度と撃てなくなる
         this.windupRoutine = null;
 
-        // 溜めている間に脱落・ラウンド終了が起きたら撃たない
+        // 溜めている間に脱落・シーン遷移が起きたら撃たない。
+        // GameManager.currentState はサーバーでしか更新されないのでここでは使えない
         if (!this.IsControllable) yield break;
-        if (GameManager.Instance == null || GameManager.Instance.currentState != GameState.Playing) yield break;
+        if (RoundManager.Instance == null) yield break;
 
         this.FireWeapon(weaponData);
         this.playerItem.DiscardIfEmpty();
@@ -495,7 +500,8 @@ public class PlayerController : NetworkBehaviour
 
         Items weaponKey = ItemDatabase.Instance.GetKey(weaponData);
         var hits = weaponData.attackRange.GetHitTargets(transform.position, transform.rotation,
-                                                        shootableLayers | breakableLayers);
+                                                        shootableLayers | breakableLayers,
+                                                        this.RangeMultiplier);
         var hitIds = new HashSet<ulong>();
 
         foreach (var col in hits)
@@ -526,7 +532,9 @@ public class PlayerController : NetworkBehaviour
         Items weaponKey = ItemDatabase.Instance.GetKey(weaponData);
         Vector3 startPos = ThrowOrigin;
         Vector3 throwDir = GetThrowDirection(weaponData.launchAngle);
-        ThrowProjectileServerRpc(startPos, throwDir * weaponData.throwSpeed, weaponKey);
+        // まっすぐ飛ぶ武器は弾速がそのまま射程になるので、範囲強化をここに乗せる
+        float speed = weaponData.throwSpeed * (weaponData.FliesStraight ? this.RangeMultiplier : 1f);
+        ThrowProjectileServerRpc(startPos, throwDir * speed, weaponKey);
     }
 
     private void FireDeployable(WeaponData weaponData)
@@ -542,7 +550,7 @@ public class PlayerController : NetworkBehaviour
         if (targetId == 0) return;
 
         var wd = ItemDatabase.Instance.GetItem(weaponKey) as WeaponData;
-        float power = wd != null ? wd.Power : 10f;
+        float power = (wd != null ? wd.Power : 10f) * this.PowerMultiplier;
 
         this.ApplyKnockback(targetId, direction, power);
     }
@@ -553,7 +561,7 @@ public class PlayerController : NetworkBehaviour
         if (!NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(blockId, out var netObj)) return;
 
         var wd = ItemDatabase.Instance.GetItem(weaponKey) as WeaponData;
-        netObj.GetComponent<BreakableBlock>()?.AddDamage(wd != null ? wd.Power : 0f);
+        netObj.GetComponent<BreakableBlock>()?.AddDamage((wd != null ? wd.Power : 0f) * this.PowerMultiplier);
     }
 
     /// <summary>サーバーが最終的なノックバックを決めて対象に適用させる</summary>
@@ -601,8 +609,10 @@ public class PlayerController : NetworkBehaviour
     void ThrowProjectileServerRpc(Vector3 startPos, Vector3 initialVelocity, Items weaponKey)
     {
         var wd = ItemDatabase.Instance.GetItem(weaponKey) as WeaponData;
-        float power = wd?.Power ?? 10f;
-        float blastRadius = wd?.blastRadius ?? 3f;
+        float power = (wd?.Power ?? 10f) * this.PowerMultiplier;
+        // 弧を描く武器は爆発半径が範囲。まっすぐ飛ぶ武器は弾速側で強化済みなので触らない
+        bool straight = wd != null && wd.FliesStraight;
+        float blastRadius = (wd?.blastRadius ?? 3f) * (straight ? 1f : this.RangeMultiplier);
         float gravity = wd?.gravityScale ?? 9.8f;
 
         Vector3 landing = TrajectorySimulator.Simulate(startPos, initialVelocity, gravity,
@@ -632,13 +642,14 @@ public class PlayerController : NetworkBehaviour
         }
 
         // まっすぐ飛ぶ武器は着弾点がレティクルそのものなので、線を引いても情報が増えない
-        if (weaponData.gravityScale <= 0f)
+        if (weaponData.FliesStraight)
         {
             preview.DrawCrosshair();
             return;
         }
 
-        Vector3 vel = GetThrowDirection(weaponData.launchAngle) * weaponData.throwSpeed;
+        float previewSpeed = weaponData.throwSpeed * (weaponData.FliesStraight ? this.RangeMultiplier : 1f);
+        Vector3 vel = GetThrowDirection(weaponData.launchAngle) * previewSpeed;
         Vector3 landing = TrajectorySimulator.Simulate(ThrowOrigin, vel, weaponData.gravityScale,
                                                        TrajectorySettings, out _, out bool hit,
                                                        trajectoryPoints);

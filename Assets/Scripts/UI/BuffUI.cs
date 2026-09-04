@@ -15,7 +15,7 @@ public class BuffUI : MonoBehaviour
     }
 
     [Header("バフの種類ごとの行")]
-    [SerializeField] private BuffRow[] rows = new BuffRow[3];
+    [SerializeField] private BuffRow[] rows = new BuffRow[4];
 
     [Header("消灯時の濃さ")]
     [Range(0f, 1f)]

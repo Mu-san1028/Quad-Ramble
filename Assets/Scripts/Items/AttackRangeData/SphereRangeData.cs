@@ -5,9 +5,10 @@ public class SphereRangeData : AttackRangeData
 {
     public float radius = 3f;
 
-    public override Collider[] GetHitTargets(Vector3 origin, Quaternion rotation, LayerMask targetLayer)
+    public override Collider[] GetHitTargets(Vector3 origin, Quaternion rotation,
+                                            LayerMask targetLayer, float rangeScale = 1f)
     {
-        return Physics.OverlapSphere(origin, radius, targetLayer);
+        return Physics.OverlapSphere(origin, radius * rangeScale, targetLayer);
     }
 
     public override void DrawGizmos(Vector3 origin, Quaternion rotation)

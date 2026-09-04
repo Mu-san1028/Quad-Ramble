@@ -6,9 +6,11 @@ public class FanRangeData : AttackRangeData
     public float radius = 2f;
     public float angle = 120f;
 
-    public override Collider[] GetHitTargets(Vector3 origin, Quaternion rotation, LayerMask targetLayer)
+    public override Collider[] GetHitTargets(Vector3 origin, Quaternion rotation,
+                                            LayerMask targetLayer, float rangeScale = 1f)
     {
-        var candidates = Physics.OverlapSphere(origin, radius, targetLayer);
+        // 角度は広げない。半径だけ伸ばす
+        var candidates = Physics.OverlapSphere(origin, radius * rangeScale, targetLayer);
         Vector3 forward = rotation * Vector3.forward;
         // 配列candidatesから、originから見てforward方向に対してangleの範囲内にあるコライダーを返す
         // forwardからみて正面から60度以内の方向にあるコライダーを返す

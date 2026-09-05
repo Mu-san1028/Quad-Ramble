@@ -348,7 +348,7 @@ public class PlayerController : NetworkBehaviour
     void Update()
     {
         this.UpdateAimInput();
-        cameraRig.UpdateAim(isAiming);
+        cameraRig.UpdateAim(isAiming, aimPitch);
         this.UpdateTrajectoryPreview();
 
         if (controller != null && controller.enabled && this.IsControllable)

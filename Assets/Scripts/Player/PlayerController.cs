@@ -25,6 +25,15 @@ public class PlayerController : NetworkBehaviour
     private float CurrentTurnSmoothTime => Mathf.Max(0.02f, turnSmoothTime);
 
     private CharacterController controller;
+
+    // 接地の真値。所有者しか Move() を呼ばないので、他人のコピーでは isGrounded が更新されない
+    private readonly NetworkVariable<bool> networkGrounded = new(writePerm: NetworkVariableWritePermission.Owner);
+
+    /// <summary>アニメーション用の接地判定。自分とオフラインは実測、他人は同期された値</summary>
+    public bool IsGrounded => (IsSpawned && !IsOwner)
+        ? this.networkGrounded.Value
+        : (this.controller != null && this.controller.isGrounded);
+
     [SerializeField] private TrajectoryPreview preview;
     [SerializeField] private PlayerCameraRig cameraRig;
     [SerializeField] private WeaponEffects effects;
@@ -458,6 +467,12 @@ public class PlayerController : NetworkBehaviour
         #endregion
 
         controller.Move(velocity * Time.deltaTime);
+
+        // 他人のコピーは Move() を呼ばないので、接地の真値をここから配る
+        if (IsSpawned && IsOwner && this.networkGrounded.Value != controller.isGrounded)
+        {
+            this.networkGrounded.Value = controller.isGrounded;
+        }
     }
 
     /// <summary>溜めを待ってから撃つ。attackWindup が 0 より大きい武器だけが通る</summary>

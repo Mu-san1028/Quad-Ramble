@@ -17,10 +17,14 @@ public struct RosterEntry : INetworkSerializable
 {
     public ulong ClientId;
     public FixedString64Bytes Name;
+    public int CharacterIndex;
+    public bool IsReady;
 
     public void NetworkSerialize<T>(BufferSerializer<T> serializer) where T : IReaderWriter
     {
         serializer.SerializeValue(ref ClientId);
         serializer.SerializeValue(ref Name);
+        serializer.SerializeValue(ref CharacterIndex);
+        serializer.SerializeValue(ref IsReady);
     }
 }

@@ -9,7 +9,6 @@ using UnityEngine;
 ///   Vert   -1〜1 体のローカル座標での前後（2D ツリーの Y）
 ///   IsJump bool  空中なら true
 /// </summary>
-[RequireComponent(typeof(Animator))]
 public class PlayerAnimator : MonoBehaviour
 {
     private static readonly int HorId = Animator.StringToHash("Hor");
@@ -27,14 +26,15 @@ public class PlayerAnimator : MonoBehaviour
 
     private Animator animator;
     private CharacterController controller;
+    private PlayerController player;
     private Vector3 previousPosition;
     private Vector2 direction;   // なまし後の Hor / Vert
     private float state;         // なまし後の State
 
     private void Awake()
     {
-        this.animator = GetComponent<Animator>();
         this.controller = GetComponent<CharacterController>();
+        this.player = GetComponent<PlayerController>();
         this.previousPosition = transform.position;
     }
 
@@ -44,8 +44,18 @@ public class PlayerAnimator : MonoBehaviour
         this.previousPosition = transform.position;
     }
 
+    /// <summary>モデルを差し替えたときに PlayerAppearance から呼ばれる</summary>
+    public void SetAnimator(Animator animator)
+    {
+        this.animator = animator;
+        this.previousPosition = transform.position;
+        this.direction = Vector2.zero;
+        this.state = 0f;
+    }
+
     private void Update()
     {
+        if (this.animator == null) return;
         float dt = Time.deltaTime;
         if (dt <= 0f) return;
 
@@ -81,6 +91,11 @@ public class PlayerAnimator : MonoBehaviour
         this.animator.SetFloat(HorId, this.direction.x);
         this.animator.SetFloat(VertId, this.direction.y);
         this.animator.SetFloat(StateId, this.state);
-        this.animator.SetBool(IsJumpId, this.controller != null && !this.controller.isGrounded);
+        // 他人のコピーでは CharacterController.isGrounded が更新されないので、同期された値を使う
+        bool grounded = this.player != null
+            ? this.player.IsGrounded
+            : (this.controller != null && this.controller.isGrounded);
+
+        this.animator.SetBool(IsJumpId, !grounded);
     }
 }

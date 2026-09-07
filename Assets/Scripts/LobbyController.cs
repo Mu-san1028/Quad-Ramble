@@ -5,8 +5,6 @@ using TMPro;
 public class LobbyController : MonoBehaviour
 {
     [SerializeField]
-    private TMP_InputField playerNameInput;
-    [SerializeField]
     private TextMeshProUGUI matchingText;
 
     void Start()
@@ -41,13 +39,18 @@ public class LobbyController : MonoBehaviour
     {
         if (clientId != NetworkManager.Singleton.LocalClientId) return;
 
-        string playerName = string.IsNullOrEmpty(playerNameInput.text) ? "Player" : playerNameInput.text;
-        ConnectionContainer.Instance.Append(clientId, playerName);
+        // 名前はキャラ選択で決まる（選んだキャラの表示名がそのまま名前になる）
+        ConnectionContainer.Instance.Append(clientId);
         matchingText.gameObject.SetActive(true);
     }
 
     private void UpdateMatchingText(int playerCount)
     {
-        matchingText.text = $"Matching... ({playerCount} / {GameManager.Instance.requiredPlayers})";
+        int required = GameManager.Instance.requiredPlayers;
+
+        // 人数が揃ったら、あとは全員の決定待ち
+        matchingText.text = playerCount < required
+            ? $"Matching... ({playerCount} / {required})"
+            : $"決定 {ConnectionContainer.Instance.ReadyCount} / {required}";
     }
 }

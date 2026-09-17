@@ -40,7 +40,7 @@ public class GameManager : MonoBehaviour
 
         if (NetworkManager.Singleton.IsServer
             && ConnectionContainer.Instance != null
-            && ConnectionContainer.Instance.GetConnectionsNum() >= requiredPlayers)
+            && ConnectionContainer.Instance.IsEveryoneReady(requiredPlayers))
         {
             currentState = GameState.Countdown;
             LoadNextScene();
@@ -53,20 +53,36 @@ public class GameManager : MonoBehaviour
         if (NetworkManager.Singleton == null) return; 
         if (!NetworkManager.Singleton.IsServer) return; // サーバーのみがこの処理を行う
 
-        if (CurrentRound < stageNames.Length)
+        var sceneManager = NetworkManager.Singleton.SceneManager;
+        if (sceneManager == null)
+        {
+            Debug.LogError("SceneManager が取得できませんでした。ネットワークが開始されていない可能性があります");
+            return;
+        }
+
+        // 読み込めないステージ（Build Settings 未登録・名前違いなど）で
+        // 止まらないよう、次のステージへ送る
+        while (CurrentRound < stageNames.Length)
         {
             string nextScene = stageNames[CurrentRound];
             CurrentRound++;
-            NetworkManager.Singleton.SceneManager.LoadScene(nextScene, UnityEngine.SceneManagement.LoadSceneMode.Single);
+            ConnectionContainer.Instance?.SetCurrentRound(CurrentRound);
+
+            var status = sceneManager.LoadScene(nextScene, LoadSceneMode.Single);
+            if (status == SceneEventProgressStatus.Started) return;
+
+            Debug.LogError($"ステージ '{nextScene}' を読み込めませんでした ({status})。Build Settings のシーン一覧に登録されているか確認してください");
         }
-        else
+
+        if (ConnectionContainer.Instance != null)
         {
-            if (ConnectionContainer.Instance != null)
-            {
-                ConnectionContainer.Instance.BroadcastFinalScores();
-            }
-            // 全ラウンド終了後、結果画面に遷移
-            NetworkManager.Singleton.SceneManager.LoadScene(resultSceneName, UnityEngine.SceneManagement.LoadSceneMode.Single);
+            ConnectionContainer.Instance.BroadcastFinalScores();
+        }
+        // 全ラウンド終了後、結果画面に遷移
+        var resultStatus = sceneManager.LoadScene(resultSceneName, LoadSceneMode.Single);
+        if (resultStatus != SceneEventProgressStatus.Started)
+        {
+            Debug.LogError($"結果画面 '{resultSceneName}' を読み込めませんでした ({resultStatus})");
         }
     }
 

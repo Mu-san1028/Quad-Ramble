@@ -9,6 +9,9 @@ public class Connection
     public ulong ClientId { get; private set; }
     public string Name { get; set; }
     public int Score { get; private set; }
+    /// <summary>選んだキャラ。-1 は未選択</summary>
+    public int CharacterIndex { get; set; } = -1;
+    public bool IsReady { get; set; }
 
     public Connection(ulong id, ulong clientId)
     {
@@ -30,6 +33,8 @@ public class ConnectionContainer : NetworkBehaviour
     public event System.Action<int> OnConnectionsChanged;
     public event System.Action OnResultsReceived;
     public static event System.Action<ConnectionContainer> OnInstanceReady;
+    private readonly NetworkVariable<int> currentRound = new ();
+    public int CurrentRound => this.currentRound.Value;
 
     public override void OnNetworkSpawn()
     {
@@ -58,22 +63,22 @@ public class ConnectionContainer : NetworkBehaviour
         this.BroadcastRoster();
     }
 
-    public void Append(ulong clientId, string name)
+    public void Append(ulong clientId)
     {
-        this.AppendServerRpc(clientId, name);
+        this.AppendServerRpc(clientId);
     }
     
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
-    private void AppendServerRpc(ulong clientId, string name)
+    private void AppendServerRpc(ulong clientId)
     {
-        // 名簿の追加はサーバーだけが行う
-        this.connections.Add(new Connection((ulong)this.connections.Count, clientId) { Name = name });
+        // 名簿の追加はサーバーだけが行う。名前はキャラを選んだときに入るので、それまでの仮名
+        this.connections.Add(new Connection((ulong)this.connections.Count, clientId) { Name = "Player" });
 
         this.BroadcastRoster();
     }
 
-    [ClientRpc]
-    private void SyncRosterClientRpc(RosterEntry[] roster, ClientRpcParams clientRpcParams = default)
+    [Rpc(SendTo.ClientsAndHost)]
+    private void SyncRosterClientRpc(RosterEntry[] roster)
     {
         if (!IsServer)
         {
@@ -82,7 +87,9 @@ public class ConnectionContainer : NetworkBehaviour
             {
                 this.connections.Add(new Connection((ulong)this.connections.Count, e.ClientId)
                 {
-                    Name = e.Name.ToString()
+                    Name = e.Name.ToString(),
+                    CharacterIndex = e.CharacterIndex,
+                    IsReady = e.IsReady
                 });
             }
         }
@@ -93,14 +100,16 @@ public class ConnectionContainer : NetworkBehaviour
     private void BroadcastRoster()
     {
         var roster = this.connections
-            .Select(c => new RosterEntry { ClientId = c.ClientId, Name = c.Name })
+            .Select(c => new RosterEntry
+            {
+                ClientId = c.ClientId,
+                Name = c.Name,
+                CharacterIndex = c.CharacterIndex,
+                IsReady = c.IsReady
+            })
             .ToArray();
 
-        var targets = NetworkManager.Singleton.ConnectedClientsIds.ToArray();
-        this.SyncRosterClientRpc(roster, new ClientRpcParams
-        {
-            Send = new ClientRpcSendParams { TargetClientIds = targets }
-        });
+        this.SyncRosterClientRpc(roster);
     }
 
 
@@ -116,6 +125,54 @@ public class ConnectionContainer : NetworkBehaviour
 
     /// <summary>表示用の名前。見つからなければ null</summary>
     public string GetName(ulong clientId) => this.GetConnection(clientId)?.Name;
+
+    /// <summary>そのキャラを確保している人。空いていれば null</summary>
+    public Connection GetOwnerOf(int characterIndex)
+    {
+        if (characterIndex < 0) return null;
+        return this.connections.Find(c => c.CharacterIndex == characterIndex);
+    }
+
+    /// <summary>キャラを確保する。先着順で、すでに他人が取っていたら無視される</summary>
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    public void SelectCharacterRpc(int index, RpcParams rpcParams = default)
+    {
+        ulong senderId = rpcParams.Receive.SenderClientId;
+
+        Connection me = this.GetConnection(senderId);
+        if (me == null) return;
+        if (CharacterDatabase.Instance == null || !CharacterDatabase.Instance.IsValidIndex(index)) return;
+
+        // 重複禁止。自分がすでに持っているぶんには通す
+        Connection owner = this.GetOwnerOf(index);
+        if (owner != null && owner.ClientId != senderId) return;
+
+        me.CharacterIndex = index;
+        me.Name = CharacterDatabase.Instance.Get(index).displayName;
+        me.IsReady = false;   // 選び直したら決定は取り消し
+
+        this.BroadcastRoster();
+    }
+
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    public void SetReadyRpc(bool ready, RpcParams rpcParams = default)
+    {
+        Connection me = this.GetConnection(rpcParams.Receive.SenderClientId);
+        if (me == null) return;
+        if (ready && me.CharacterIndex < 0) return;   // 選ぶ前に決定はできない
+
+        me.IsReady = ready;
+        this.BroadcastRoster();
+    }
+
+    public int ReadyCount => this.connections.Count(c => c.IsReady);
+
+    /// <summary>人数が揃っていて、全員がキャラを選んで決定しているか</summary>
+    public bool IsEveryoneReady(int requiredPlayers)
+    {
+        if (this.connections.Count < requiredPlayers) return false;
+        return this.connections.All(c => c.CharacterIndex >= 0 && c.IsReady);
+    }
 
 
     public int GetRank(ulong id)
@@ -133,7 +190,7 @@ public class ConnectionContainer : NetworkBehaviour
         BroadcastFinalScoresClientRpc(entries);
     }
 
-    [ClientRpc]
+    [Rpc(SendTo.ClientsAndHost)]
     private void BroadcastFinalScoresClientRpc(ResultEntry[] entries)
     {
         Result = entries
@@ -149,10 +206,15 @@ public class ConnectionContainer : NetworkBehaviour
         this.ReturnToTitleClientRpc();
     }
 
-    [ClientRpc]
+    [Rpc(SendTo.ClientsAndHost)]
     private void ReturnToTitleClientRpc()
     {
         GameManager.Instance.ReturnToTitle();
     }
 
+    public void SetCurrentRound(int round)
+    {
+        if (!IsServer) return;
+        this.currentRound.Value = round;
+    }
 }

@@ -16,6 +16,13 @@ public enum Items
     Spear,
     Sword,
     Landmine,
+
+    // Permanent Upgrades
+    JumpUp,
+    SpeedUp,
+    TurnUp,      // 廃止。値がずれると各シーンの抽選テーブルが壊れるので消さない
+    PowerUp,
+    RangeUp,
 }
 
 public class ItemDatabase : MonoBehaviour

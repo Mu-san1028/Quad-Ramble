@@ -27,6 +27,9 @@ public class WeaponData : ItemBase
     public float throwSpeed = 10f;
     public float blastRadius = 3f;
     public float gravityScale = 9.8f;
+
+    /// <summary>重力を受けずまっすぐ飛ぶ武器。射程は弾速で決まり、照準は十字で出す</summary>
+    public bool FliesStraight => this.gravityScale <= 0f;
     public float launchAngle = 45f;
 
     [Header("Deployable：設置するPrefab")]

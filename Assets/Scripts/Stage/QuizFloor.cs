@@ -8,6 +8,7 @@ using System.Collections;
 public class QuizFloor : MonoBehaviour
 {
     [SerializeField] private int floorID; // インスペクターで各床にユニークなIDを設定
+    [SerializeField] private float revivalTime = 5; // 床が消えた後、何秒で復活するかを設定
     private bool isDissolved = false;
 
     // 正解のIDがどれかを管理するクラス（適宜外部からアクセスできるようにしてください）
@@ -44,7 +45,7 @@ public class QuizFloor : MonoBehaviour
         GetComponent<Collider>().enabled = false;
 
         // これならスクリプトが停止しないので5秒後に復活できる
-        yield return new WaitForSeconds(5.0f);
+        yield return new WaitForSeconds(revivalTime*1.0f);
 
         // 元に戻す
         GetComponent<Renderer>().enabled = true;

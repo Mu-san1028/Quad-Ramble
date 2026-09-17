@@ -23,6 +23,12 @@ public static class SavePointRegistry
         public Quaternion Rotation;
         public int Order;
         public int RespawnCount;
+        public bool HasSavePoint;   // セーブポイントを 1 つでも通ったか
+
+        // ラウンド開始地点。セーブポイント未通過のときの復帰先として使う（使うかは呼び出し側が決める）
+        public Vector3 StartPosition;
+        public Quaternion StartRotation;
+        public bool HasStart;
     }
 
     private static readonly Dictionary<PlayerController, Entry> records = new Dictionary<PlayerController, Entry>(8);
@@ -46,25 +52,50 @@ public static class SavePointRegistry
     /// </summary>
     public static bool Record(PlayerController player, SavePoint point)
     {
-        if (player == null || point == null) return false;
+        if (point == null) return false;
+        return Record(player, point.Order, point.RespawnPosition, point.RespawnRotation);
+    }
 
-        if (records.TryGetValue(player, out Entry current) && current.Order >= point.Order) return false;
+    /// <summary>
+    /// 通過を記録する（値で受け取る版）。クライアントから RPC で届いた通過報告はこちらを使う。
+    /// </summary>
+    public static bool Record(PlayerController player, int order, Vector3 position, Quaternion rotation)
+    {
+        if (player == null) return false;
 
-        records[player] = new Entry
-        {
-            Position = point.RespawnPosition,
-            Rotation = point.RespawnRotation,
-            Order = point.Order,
-            RespawnCount = current.RespawnCount, // 復帰回数は引き継ぐ
-        };
+        records.TryGetValue(player, out Entry current);
+        if (current.HasSavePoint && current.Order >= order) return false;
+
+        // 開始地点と復帰回数は引き継ぐ
+        current.Position = position;
+        current.Rotation = rotation;
+        current.Order = order;
+        current.HasSavePoint = true;
+        records[player] = current;
         return true;
+    }
+
+    /// <summary>
+    /// ラウンドの開始地点を覚える。PlayerSpawner がスポーン時に呼ぶ。
+    /// セーブポイントの記録は消さない（呼ぶ前に <see cref="Clear"/> しておくこと）。
+    /// </summary>
+    public static void RecordStart(PlayerController player, Vector3 position, Quaternion rotation)
+    {
+        if (player == null) return;
+
+        records.TryGetValue(player, out Entry current);
+        current.StartPosition = position;
+        current.StartRotation = rotation;
+        current.HasStart = true;
+        records[player] = current;
     }
 
     /// <summary>
     /// 復帰地点を 1 回分取り出す。取れたら復帰回数を 1 増やして true。
     /// limit が負なら無制限。limit 回を超えたら false を返すので、呼び出し側は従来どおり脱落させる。
+    /// useStart が true なら、セーブポイント未通過でも開始地点へ戻す。
     /// </summary>
-    public static bool TryConsumeRespawn(PlayerController player, int limit, out Vector3 position, out Quaternion rotation)
+    public static bool TryConsumeRespawn(PlayerController player, int limit, bool useStart, out Vector3 position, out Quaternion rotation)
     {
         position = Vector3.zero;
         rotation = Quaternion.identity;
@@ -73,8 +104,20 @@ public static class SavePointRegistry
         if (!records.TryGetValue(player, out Entry record)) return false;
         if (limit >= 0 && record.RespawnCount >= limit) return false;
 
-        position = record.Position;
-        rotation = record.Rotation;
+        if (record.HasSavePoint)
+        {
+            position = record.Position;
+            rotation = record.Rotation;
+        }
+        else if (useStart && record.HasStart)
+        {
+            position = record.StartPosition;
+            rotation = record.StartRotation;
+        }
+        else
+        {
+            return false;
+        }
 
         record.RespawnCount++;
         records[player] = record;

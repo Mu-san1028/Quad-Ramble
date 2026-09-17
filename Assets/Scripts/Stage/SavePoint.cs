@@ -11,6 +11,11 @@ using UnityEngine;
 ///
 /// 記録はサーバーだけが持つ。復帰位置を決めるのはサーバーの仕事で、
 /// クライアントは Teleport の ClientRpc を受け取るだけ。
+///
+/// 通過の判定は「そのプレイヤーを動かしている端末（Owner）」で行い、サーバーへ報告する。
+/// 他人のプレイヤーはサーバー上では NetworkTransform が座標を書き換えるだけで
+/// CharacterController.Move を通らないため、サーバー側の OnTriggerEnter が来ないことがある。
+/// サーバーだけで判定していた頃は、二人以上で遊ぶとホスト以外のセーブが記録されなかった。
 /// </summary>
 public class SavePoint : MonoBehaviour
 {
@@ -41,20 +46,32 @@ public class SavePoint : MonoBehaviour
         // タグ比較が一番安いので先に弾く
         if (!other.CompareTag("Player")) return;
 
-        // 記録を持つのはサーバーだけ
+        var network = NetworkManager.Singleton;
+        if (network == null || !network.IsListening) return;
+
+        // 結果キャッシュ付きの取得。同じ Collider が何度触れても走査は初回だけ。
+        PlayerController player = StageCache<PlayerController>.Get(other);
+        if (player == null) return;
+
+        // 判定は動かしている本人の端末だけ。サーバーでも他人のプレイヤーは本人の報告を待つ（二重処理しない）
+        if (!player.IsOwner) return;
+
+        if (network.IsServer) Apply(player, this.order, this.RespawnPosition, this.RespawnRotation);
+        else player.ReportSavePointServerRpc(this.order, this.RespawnPosition, this.RespawnRotation);
+
+        if (this.verboseLog) Debug.Log($"[SavePoint] {player.name} がセーブポイント {this.order} を通過", this);
+    }
+
+    /// <summary>通過をサーバーで記録する。本人の端末からの報告もここに来る。</summary>
+    public static void Apply(PlayerController player, int order, Vector3 position, Quaternion rotation)
+    {
         var network = NetworkManager.Singleton;
         if (network == null || !network.IsServer) return;
 
         if (GameManager.Instance == null) return;
         if (GameManager.Instance.currentState != GameState.Playing) return;
 
-        // 結果キャッシュ付きの取得。同じ Collider が何度触れても走査は初回だけ。
-        PlayerController player = StageCache<PlayerController>.Get(other);
-        if (player == null) return;
-
-        if (!SavePointRegistry.Record(player, this)) return; // 既に先のセーブポイントを通過済み
-
-        if (this.verboseLog) Debug.Log($"[SavePoint] {player.name} がセーブポイント {this.order} を通過", this);
+        SavePointRegistry.Record(player, order, position, rotation); // 既に先のセーブポイントを通過済みなら何もしない
     }
 
 #if UNITY_EDITOR

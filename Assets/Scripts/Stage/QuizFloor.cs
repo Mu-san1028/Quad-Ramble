@@ -14,42 +14,10 @@ using UnityEngine;
 /// </summary>
 public class QuizFloor : MonoBehaviour, IStageTimerTarget
 {
-    [SerializeField] private int floorID; // インスペクターで各床にユニークな ID を設定
+    [SerializeField] private int floorID; // インスペクターで各床にユニークなIDを設定
+    [SerializeField] private float revivalTime = 5; // 床が消えた後、何秒で復活するかを設定
+    private bool isDissolved = false;
 
-    [Tooltip("消えてから元に戻るまでの秒数")]
-    [SerializeField] private float restoreSeconds = 5f;
-
-    [SerializeField] private bool verboseLog = false;
-
-    private Renderer floorRenderer;
-    private Collider floorCollider;
-    private bool isDissolved;
-
-    private const int RestoreToken = 3;
-
-    public int FloorID => this.floorID;
-    public bool IsDissolved => this.isDissolved;
-
-    private void Awake()
-    {
-        this.floorRenderer = this.GetComponent<Renderer>();
-        this.floorCollider = this.GetComponent<Collider>();
-    }
-
-    /// <summary>
-    /// ID を実行中に変える（手続き的にステージを組む場合用）。
-    /// ID 引きの索引を持っているので、登録し直しまでここで面倒を見る。
-    /// </summary>
-    public void SetFloorID(int id)
-    {
-        if (this.floorID == id) return;
-
-        QuizManager.UnregisterFloor(this);
-        this.floorID = id;
-        QuizManager.Instance?.RegisterFloor(this);
-    }
-
-    private void OnEnable() => QuizManager.Instance?.RegisterFloor(this);
 
     private void OnDisable()
     {
@@ -103,8 +71,10 @@ public class QuizFloor : MonoBehaviour, IStageTimerTarget
     {
         StageDirector.CancelTimers(this);
 
-        if (this.floorRenderer != null) this.floorRenderer.enabled = true;
-        if (this.floorCollider != null) this.floorCollider.enabled = true;
+
+        // これならスクリプトが停止しないので5秒後に復活できる
+        yield return new WaitForSeconds(revivalTime*1.0f);
+
 
         this.isDissolved = false;
     }

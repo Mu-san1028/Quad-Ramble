@@ -1,23 +1,55 @@
 using UnityEngine;
 
 /// <summary>
-/// ã‚¯ã‚¤ã‚ºãªã©ã€ç‰¹å®šã®åºŠã‚’æ¶ˆã™ã‚®ãƒŸãƒƒã‚¯ã«ä½¿ç”¨ã™ã‚‹ã‚¹ã‚¯ãƒªãƒ—ãƒˆã€‚
-/// CheckAnswer ã«æ­£è§£ã® ID ã‚’æ¸¡ã™ã¨ã€ID ãŒä¸€è‡´ã—ãªã„åºŠãŒæ¶ˆãˆã‚‹ã€‚
-/// é€†ã«ç‰¹å®šã® ID ã®åºŠã ã‘ã‚’æ¶ˆã—ãŸã„å ´åˆã¯ DeleteFloorByID ã‚’ä½¿ã†ã€‚
+/// ƒNƒCƒY‚È‚ÇA“Á’è‚Ì°‚ğÁ‚·ƒMƒ~ƒbƒN‚Ég—p‚·‚éƒXƒNƒŠƒvƒgB
+/// CheckAnswer ‚É³‰ğ‚Ì ID ‚ğ“n‚·‚ÆAID ‚ªˆê’v‚µ‚È‚¢°‚ªÁ‚¦‚éB
+/// ‹t‚É“Á’è‚Ì ID ‚Ì°‚¾‚¯‚ğÁ‚µ‚½‚¢ê‡‚Í DeleteFloorByID ‚ğg‚¤B
 ///
-/// æ—§å®Ÿè£…ã‹ã‚‰ã®å¤‰æ›´ç‚¹:
-/// - Renderer / Collider ã‚’ Awake ã§ 1 åº¦ã ã‘å–å¾—ã™ã‚‹ã‚ˆã†ã«ã—ãŸã€‚
-///   æ—§å®Ÿè£…ã¯æ¶ˆãˆã‚‹ï¼æˆ»ã‚‹ãŸã³ã« GetComponent ã‚’è¨ˆ 4 å›å©ã„ã¦ã„ãŸã€‚
-/// - Coroutine + WaitForSeconds ã‚’ã‚„ã‚ã€StageDirector ã®ã‚¿ã‚¤ãƒãƒ¼ã«å¯„ã›ãŸã€‚
-/// - å¾©æ´»ã¾ã§ã®ç§’æ•°ãŒãƒ™ã‚¿æ›¸ãã ã£ãŸã®ã§ Inspector ã‹ã‚‰å¤‰ãˆã‚‰ã‚Œã‚‹ã‚ˆã†ã«ã—ãŸã€‚
-/// - QuizManager ã«è‡ªåˆ†ã‹ã‚‰ç™»éŒ²ã™ã‚‹ã‚ˆã†ã«ã—ãŸï¼ˆQuizManager å´ã®å…¨ä»¶æ¤œç´¢ã‚’ãªãã™ãŸã‚ï¼‰ã€‚
+/// ‹ŒÀ‘•‚©‚ç‚Ì•ÏX“_:
+/// - Renderer / Collider ‚ğ Awake ‚Å 1 “x‚¾‚¯æ“¾‚·‚é‚æ‚¤‚É‚µ‚½B
+///   ‹ŒÀ‘•‚ÍÁ‚¦‚é^–ß‚é‚½‚Ñ‚É GetComponent ‚ğŒv 4 ‰ñ’@‚¢‚Ä‚¢‚½B
+/// - Coroutine + WaitForSeconds ‚ğ‚â‚ßAStageDirector ‚Ìƒ^ƒCƒ}[‚ÉŠñ‚¹‚½B
+/// - •œŠˆ‚Ü‚Å‚Ì•b”‚ªƒxƒ^‘‚«‚¾‚Á‚½‚Ì‚Å Inspector ‚©‚ç•Ï‚¦‚ç‚ê‚é‚æ‚¤‚É‚µ‚½B
+/// - QuizManager ‚É©•ª‚©‚ç“o˜^‚·‚é‚æ‚¤‚É‚µ‚½iQuizManager ‘¤‚Ì‘SŒŒŸõ‚ğ‚È‚­‚·‚½‚ßjB
 /// </summary>
 public class QuizFloor : MonoBehaviour, IStageTimerTarget
 {
-    [SerializeField] private int floorID; // ã‚¤ãƒ³ã‚¹ãƒšã‚¯ã‚¿ãƒ¼ã§å„åºŠã«ãƒ¦ãƒ‹ãƒ¼ã‚¯ãªIDã‚’è¨­å®š
-    [SerializeField] private float revivalTime = 5; // åºŠãŒæ¶ˆãˆãŸå¾Œã€ä½•ç§’ã§å¾©æ´»ã™ã‚‹ã‹ã‚’è¨­å®š
-    private bool isDissolved = false;
+    [SerializeField] private int floorID; // ƒCƒ“ƒXƒyƒNƒ^[‚ÅŠe°‚Éƒ†ƒj[ƒN‚È ID ‚ğİ’è
 
+    [Tooltip("Á‚¦‚Ä‚©‚çŒ³‚É–ß‚é‚Ü‚Å‚Ì•b”")]
+    [SerializeField] private float restoreSeconds = 5f;
+
+    [SerializeField] private bool verboseLog = false;
+
+    private Renderer floorRenderer;
+    private Collider floorCollider;
+    private bool isDissolved;
+
+    private const int RestoreToken = 3;
+
+    public int FloorID => this.floorID;
+    public bool IsDissolved => this.isDissolved;
+
+    private void Awake()
+    {
+        this.floorRenderer = this.GetComponent<Renderer>();
+        this.floorCollider = this.GetComponent<Collider>();
+    }
+
+    /// <summary>
+    /// ID ‚ğÀs’†‚É•Ï‚¦‚éiè‘±‚«“I‚ÉƒXƒe[ƒW‚ğ‘g‚Şê‡—pjB
+    /// ID ˆø‚«‚Ìõˆø‚ğ‚Á‚Ä‚¢‚é‚Ì‚ÅA“o˜^‚µ’¼‚µ‚Ü‚Å‚±‚±‚Å–Ê“|‚ğŒ©‚éB
+    /// </summary>
+    public void SetFloorID(int id)
+    {
+        if (this.floorID == id) return;
+
+        QuizManager.UnregisterFloor(this);
+        this.floorID = id;
+        QuizManager.Instance?.RegisterFloor(this);
+    }
+
+    private void OnEnable() => QuizManager.Instance?.RegisterFloor(this);
 
     private void OnDisable()
     {
@@ -25,35 +57,35 @@ public class QuizFloor : MonoBehaviour, IStageTimerTarget
         QuizManager.UnregisterFloor(this);
     }
 
-    /// <summary>æ­£è§£ ID ã‚’å—ã‘å–ã‚Šã€è‡ªåˆ†ã® ID ã¨é•ãˆã°æ¶ˆãˆã‚‹ã€‚</summary>
+    /// <summary>³‰ğ ID ‚ğó‚¯æ‚èA©•ª‚Ì ID ‚Æˆá‚¦‚ÎÁ‚¦‚éB</summary>
     public void CheckAnswer(int correctAnswerID)
     {
         if (this.floorID == correctAnswerID)
         {
-            if (this.verboseLog) Debug.Log("æ­£è§£ï¼åºŠã¯ãã®ã¾ã¾ã§ã™ã€‚", this);
+            if (this.verboseLog) Debug.Log("³‰ğI°‚Í‚»‚Ì‚Ü‚Ü‚Å‚·B", this);
             return;
         }
 
         this.Dissolve();
     }
 
-    /// <summary>æŒ‡å®š ID ã¨ä¸€è‡´ã™ã‚‹åºŠã ã‘ã‚’æ¶ˆã™ã€‚</summary>
+    /// <summary>w’è ID ‚Æˆê’v‚·‚é°‚¾‚¯‚ğÁ‚·B</summary>
     public void DeleteFloorByID(int targetID)
     {
         if (this.floorID != targetID) return;
 
-        if (this.verboseLog) Debug.Log("ID ãŒä¸€è‡´ã—ã¾ã—ãŸã€‚åºŠã‚’æ¶ˆã—ã¾ã™ã€‚", this);
+        if (this.verboseLog) Debug.Log("ID ‚ªˆê’v‚µ‚Ü‚µ‚½B°‚ğÁ‚µ‚Ü‚·B", this);
         this.Dissolve();
     }
 
-    /// <summary>åºŠã‚’æ¶ˆã™ã€‚restoreSeconds å¾Œã«è‡ªå‹•ã§æˆ»ã‚‹ã€‚</summary>
+    /// <summary>°‚ğÁ‚·BrestoreSeconds Œã‚É©“®‚Å–ß‚éB</summary>
     public void Dissolve()
     {
         if (this.isDissolved) return;
         this.isDissolved = true;
 
-        // GameObject è‡ªä½“ã¯æœ‰åŠ¹ã®ã¾ã¾ã«ã—ã¦ã€è¦‹ãŸç›®ã¨å½“ãŸã‚Šåˆ¤å®šã ã‘åˆ‡ã‚‹ã€‚
-        // ã“ã†ã—ãªã„ã¨ã€ç„¡åŠ¹åŒ–ã—ãŸ GameObject ä¸Šã§ã¯ã‚¿ã‚¤ãƒãƒ¼ã®è§£é™¤ã‚‚å¾©å¸°ã‚‚å‹•ã‹ã›ãªã„ã€‚
+        // GameObject ©‘Ì‚Í—LŒø‚Ì‚Ü‚Ü‚É‚µ‚ÄAŒ©‚½–Ú‚Æ“–‚½‚è”»’è‚¾‚¯Ø‚éB
+        // ‚±‚¤‚µ‚È‚¢‚ÆA–³Œø‰»‚µ‚½ GameObject ã‚Å‚Íƒ^ƒCƒ}[‚Ì‰ğœ‚à•œ‹A‚à“®‚©‚¹‚È‚¢B
         if (this.floorRenderer != null) this.floorRenderer.enabled = false;
         if (this.floorCollider != null) this.floorCollider.enabled = false;
 
@@ -66,15 +98,13 @@ public class QuizFloor : MonoBehaviour, IStageTimerTarget
         this.Restore();
     }
 
-    /// <summary>åºŠã‚’å³åº§ã«å…ƒã«æˆ»ã™ã€‚</summary>
+    /// <summary>°‚ğ‘¦À‚ÉŒ³‚É–ß‚·B</summary>
     public void Restore()
     {
         StageDirector.CancelTimers(this);
 
-
-        // ã“ã‚Œãªã‚‰ã‚¹ã‚¯ãƒªãƒ—ãƒˆãŒåœæ­¢ã—ãªã„ã®ã§5ç§’å¾Œã«å¾©æ´»ã§ãã‚‹
-        yield return new WaitForSeconds(revivalTime*1.0f);
-
+        if (this.floorRenderer != null) this.floorRenderer.enabled = true;
+        if (this.floorCollider != null) this.floorCollider.enabled = true;
 
         this.isDissolved = false;
     }

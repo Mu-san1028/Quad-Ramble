@@ -1,386 +1,131 @@
-using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
-using UnityEngine.InputSystem;
-using Unity.Netcode;
-using TMPro;
 
-public enum Difficulty { Easy, Normal, Hard }
-
-public class QuizManager : NetworkBehaviour
+/// <summary>
+/// ƒNƒCƒY°‚Ìæ‚è‚Ü‚Æ‚ß–ğB
+///
+/// ‹ŒÀ‘•‚©‚ç‚Ì•ÏX“_:
+/// - Start ‚Å‚Ì FindObjectsByType&lt;QuizFloor&gt;() ‚ğ‚â‚ß‚½B
+///   ƒV[ƒ“’†‚Ì‘S GameObject ‚ğ‘–¸‚·‚é‚¤‚¦AŒ‹‰Ê‚Ì”z—ñ‚àŠm•Û‚³‚ê‚éB
+///   ‚³‚ç‚ÉAŒã‚©‚ç¶¬‚µ‚½°‚ÍE‚¦‚¸A”jŠü‚³‚ê‚½°‚Í List ‚É null ‚Æ‚µ‚Äc‚è‘±‚¯‚Ä‚¢‚½B
+///   °‚ª©•ª‚Å“o˜^^‰ğœ‚·‚éŒ`‚É‚µ‚ÄA‚±‚Ì 3 ‚Â‚ğ‚Ü‚Æ‚ß‚Ä‰ğÁ‚µ‚½B
+/// - ID ˆø‚«‚Ì Dictionary ‚ğ‚½‚¹A“Á’è ID ‚Ì°‚¾‚¯‚ğÁ‚·‘€ì‚ğ‘SŒ‘–¸‚È‚µ‚Å‚Å‚«‚é‚æ‚¤‚É‚µ‚½B
+/// </summary>
+public class QuizManager : MonoBehaviour
 {
-    [Header("ãƒ‡ãƒãƒƒã‚°è¨­å®š")]
-    [SerializeField] private bool isDebugMode = false;
+    private static QuizManager instance;
 
-    [Header("UIè¨­å®š")]
-    [SerializeField] private TMP_Text messageText; // çŠ¶æ³èª¬æ˜ç”¨ã® TextMeshPro
+    // ‘S°BNotifyAnswer ‚Ì‚æ‚¤‚É‘SŒ‚Ö”z‚é‘€ì‚Í‚±‚¿‚ç‚ğg‚¤B
+    private readonly StageRegistry<QuizFloor> floors = new StageRegistry<QuizFloor>();
 
-    [Header("åºŠã®ç®¡ç†")]
-    private List<QuizFloor> floorList = new List<QuizFloor>();
+    // ID ˆø‚«BDeleteFloorsByID ‚ğ‘SŒ‘–¸‚È‚µ‚ÅÏ‚Ü‚¹‚é‚½‚ßB
+    private readonly Dictionary<int, List<QuizFloor>> floorsById = new Dictionary<int, List<QuizFloor>>(16);
 
-    [Header("ç´ æï¼ˆ10ç¨®é¡ã®é‡èœãƒ»æœç‰©ãƒ—ãƒ¬ãƒãƒ–ï¼‰")]
-    [SerializeField] private List<GameObject> fruitPrefabs = new List<GameObject>();
+    public int FloorCount => this.floors.Count;
 
-    [Header("æ¼”å‡ºãƒ»è£œè¶³ç”¨ãƒ¢ãƒ‡ãƒ«")]
-    [SerializeField] private GameObject questionBlockPrefab;
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    private static void ResetStatics() => instance = null;
 
-    [Header("è¡¨ç¤ºä½ç½®")]
-    [SerializeField] private Transform displayPoint;
-    [SerializeField] private Transform[] optionPoints = new Transform[4];
-
-    [Header("æ¼”å‡ºè¨­å®š")]
-    [SerializeField] private float showInterval = 1.0f; // æœç‰©ã‚’1ã¤ãšã¤è¡¨ç¤ºã™ã‚‹é–“éš”
-
-    [Header("ä¸­å¤®è¡¨ç¤ºã®ã‚µã‚¤ã‚ºãƒ»é–“éš”èª¿æ•´")]
-    [SerializeField] private float fruitScale = 6.0f;
-    [SerializeField] private float questionBlockScale = 3.5f;
-    [SerializeField] private float totalWidth = 20.0f;
-
-    [Header("é¸æŠè‚¢ï¼ˆåºŠå´ï¼‰ã®ã‚µã‚¤ã‚ºãƒ»ä½ç½®èª¿æ•´")]
-    [SerializeField] private float optionFruitScale = 4.0f;
-    [SerializeField] private float optionYOffset = 0.5f;
-    [SerializeField] private float optionSpacing = 4.5f;
-
-    private int correctIndex;
-
-    private Coroutine gameSequenceCoroutine;
-    private Coroutine clientDisplayCoroutine;
-
-    void Start()
+    /// <summary>
+    /// ƒV[ƒ“‚É’u‚©‚ê‚Ä‚¢‚ê‚Î‚»‚ê‚ğA‚È‚¯‚ê‚Î©“®¶¬‚·‚éB
+    /// °‚Ì OnEnable ‚ª Awake ‚æ‚èæ‚É‘–‚Á‚Ä‚à“o˜^‚Å‚«‚é‚æ‚¤‚É‚·‚é‚½‚ßB
+    /// </summary>
+    public static QuizManager Instance
     {
-        QuizFloor[] foundFloors = FindObjectsByType<QuizFloor>(FindObjectsSortMode.None);
-        floorList.AddRange(foundFloors);
-    }
-
-    public override void OnNetworkSpawn()
-    {
-        // ã‚µãƒ¼ãƒãƒ¼ï¼ˆãƒ›ã‚¹ãƒˆï¼‰å´ã§ã®ã¿è‡ªå‹•é€²è¡Œã‚·ãƒ¼ã‚±ãƒ³ã‚¹ã‚’é–‹å§‹ã™ã‚‹
-        if (IsServer && !isDebugMode)
+        get
         {
-            gameSequenceCoroutine = StartCoroutine(AutoGameSequence());
+            if (instance != null) return instance;
+
+            // ’Tõ‚Í‚±‚±‚Å‚Ì 1 ‰ñ‚¾‚¯B–ˆƒtƒŒ[ƒ€‚Í‘–‚ç‚È‚¢B
+            instance = FindFirstObjectByType<QuizManager>();
+            if (instance != null) return instance;
+
+            var go = new GameObject("[QuizManager]");
+            go.hideFlags = HideFlags.DontSave;
+            instance = go.AddComponent<QuizManager>();
+            return instance;
         }
     }
 
-    private void Update()
+    private void Awake()
     {
-        if (!IsSpawned) return;
-
-        // ãƒ‡ãƒãƒƒã‚°ãƒ¢ãƒ¼ãƒ‰ãŒONã®å ´åˆã®ã¿æ‰‹å‹•ã‚­ãƒ¼å…¥åŠ›ã‚’æœ‰åŠ¹åŒ–
-        if (isDebugMode)
+        if (instance != null && instance != this)
         {
-            if (Keyboard.current == null) return;
+            Debug.LogWarning($"[QuizManager] '{this.name}' ‚Í 2 ŒÂ–Ú‚È‚Ì‚Å–³Œø‰»‚µ‚Ü‚·B", this);
+            this.enabled = false;
+            return;
+        }
+        instance = this;
+    }
 
-            if (Keyboard.current.digit1Key.wasPressedThisFrame || Keyboard.current.numpad1Key.wasPressedThisFrame)
-            {
-                RequestStartQuizServerRpc(Difficulty.Easy);
-            }
-            if (Keyboard.current.digit2Key.wasPressedThisFrame || Keyboard.current.numpad2Key.wasPressedThisFrame)
-            {
-                RequestStartQuizServerRpc(Difficulty.Normal);
-            }
-            if (Keyboard.current.digit3Key.wasPressedThisFrame || Keyboard.current.numpad3Key.wasPressedThisFrame)
-            {
-                RequestStartQuizServerRpc(Difficulty.Hard);
-            }
-            if (Keyboard.current.digit4Key.wasPressedThisFrame || Keyboard.current.numpad4Key.wasPressedThisFrame)
-            {
-                ExecuteAnswerCheckServerRpc(false);
-            }
+    private void OnDestroy()
+    {
+        if (instance == this) instance = null;
+    }
+
+    // --- °‚Ì“o˜^ -----------------------------------------------------------
+
+    public void RegisterFloor(QuizFloor floor)
+    {
+        if (floor == null) return;
+
+        this.floors.Add(floor);
+
+        if (!this.floorsById.TryGetValue(floor.FloorID, out List<QuizFloor> list))
+        {
+            list = new List<QuizFloor>(4);
+            this.floorsById[floor.FloorID] = list;
+        }
+        if (!list.Contains(floor)) list.Add(floor);
+    }
+
+    /// <summary>°‘¤‚Ì OnDisable ‚©‚çŒÄ‚Î‚ê‚éBManager ‚ªŠù‚ÉÁ‚¦‚Ä‚¢‚Ä‚àˆÀ‘S‚È‚æ‚¤‚É staticB</summary>
+    public static void UnregisterFloor(QuizFloor floor)
+    {
+        if (instance == null || floor == null) return;
+
+        instance.floors.Remove(floor);
+
+        if (instance.floorsById.TryGetValue(floor.FloorID, out List<QuizFloor> list))
+        {
+            list.Remove(floor);
         }
     }
 
-    #region è‡ªå‹•é€²è¡Œã‚·ãƒ¼ã‚±ãƒ³ã‚¹ (90ç§’æ§‹æˆ)
+    // --- ‘€ì ---------------------------------------------------------------
 
-    private IEnumerator AutoGameSequence()
+    /// <summary>
+    /// ³‰ğ ID ‚ğ‘S°‚Ö”z‚éBID ‚ªˆá‚¤°‚ªÁ‚¦‚éB
+    /// </summary>
+    public void NotifyAnswer(int correctID)
     {
-        // 1. æœ€åˆã®10ç§’ï¼šèª¬æ˜å¾…æ©Ÿæ™‚é–“
-        UpdateMessageClientRpc("ã“ã‚Œã‹ã‚‰è¡¨ç¤ºã•ã‚Œã‚‹æ§˜ã€…ãªã‚¢ã‚¤ãƒ†ãƒ ã‚’é †ç•ªé€šã‚Šã«è¦šãˆã¾ã—ã‚‡ã†ï¼å•é¡Œã¯ã©ã‚“ã©ã‚“é›£ã—ããªã‚Šã¾ã™ï¼");
-        yield return new WaitForSeconds(10.0f);
-
-        // 2. 10ç§’ã€œ30ç§’ï¼ˆ20ç§’é–“ï¼‰ï¼šç°¡å˜å•é¡Œ
-        // (æ¼”å‡ºæ™‚é–“ç´„3.6ç§’ + æ€è€ƒæ™‚é–“11.4ç§’ = è¨ˆ15ç§’ã®å¾Œã«åˆ¤å®š)
-        StartQuiz(Difficulty.Easy, totalAnswerTime: 11.4f);
-        yield return new WaitForSeconds(15.0f);
-        ExecuteAnswerCheck(isFinalQuestion: false);
-        yield return new WaitForSeconds(5.0f);  // ä½™éŸ»æ™‚é–“
-
-        // 3. 30ç§’ã€œ55ç§’ï¼ˆ25ç§’é–“ï¼‰ï¼šæ™®é€šå•é¡Œ
-        // (æ¼”å‡ºæ™‚é–“ç´„6.0ç§’ + æ€è€ƒæ™‚é–“14.0ç§’ = è¨ˆ20ç§’ã®å¾Œã«åˆ¤å®š)
-        StartQuiz(Difficulty.Normal, totalAnswerTime: 14.0f);
-        yield return new WaitForSeconds(20.0f);
-        ExecuteAnswerCheck(isFinalQuestion: false);
-        yield return new WaitForSeconds(5.0f);
-
-        // 4. 55ç§’ã€œ85ç§’ï¼ˆ30ç§’é–“ï¼‰ï¼šæ¿€ãƒ ã‚ºå•é¡Œ
-        // (æ¼”å‡ºæ™‚é–“ç´„8.4ç§’ + æ€è€ƒæ™‚é–“16.6ç§’ = è¨ˆ25ç§’ã®å¾Œã«åˆ¤å®š)
-        StartQuiz(Difficulty.Hard, totalAnswerTime: 16.6f);
-        yield return new WaitForSeconds(25.0f);
-        ExecuteAnswerCheck(isFinalQuestion: true);
-        yield return new WaitForSeconds(5.0f);
-
-        // 5. 85ç§’ã€œ90ç§’ï¼ˆ5ç§’é–“ï¼‰ï¼šçµ‚äº†
-        ClearAllDisplaysClientRpc();
-        UpdateMessageClientRpc(""); // ãƒ†ã‚­ã‚¹ãƒˆã‚¯ãƒªã‚¢
-    }
-
-    #endregion
-
-    #region ãƒ‡ãƒãƒƒã‚°ãƒ»RPCè¦æ±‚å‡¦ç†
-
-    [ServerRpc(RequireOwnership = false)]
-    private void RequestStartQuizServerRpc(Difficulty difficulty)
-    {
-        // ãƒ‡ãƒãƒƒã‚°ç”¨ï¼ˆæ€è€ƒæ™‚é–“ã¯ä»®ã§10ç§’è¨­å®šï¼‰
-        StartQuiz(difficulty, 10.0f);
-    }
-
-    [ServerRpc(RequireOwnership = false)]
-    private void ExecuteAnswerCheckServerRpc(bool isFinalQuestion)
-    {
-        ExecuteAnswerCheck(isFinalQuestion);
-    }
-
-    public void ExecuteAnswerCheck(bool isFinalQuestion = false)
-    {
-        if (IsServer)
+        // ”z—ñ‚ğ‚»‚Ì‚Ü‚Ü‘O‚©‚ç‰ñ‚·Bnull ƒ`ƒFƒbƒN‚ª•s—v‚È‚Ì‚ÍA
+        // °‚ª OnDisable ‚Å©•ª‚ğŠO‚·‚Ì‚ÅA‚±‚±‚É€‚ñ‚¾QÆ‚ªc‚ç‚È‚¢‚½‚ßB
+        QuizFloor[] items = this.floors.Items;
+        for (int i = 0; i < this.floors.Count; i++)
         {
-            NotifyAnswerClientRpc(correctIndex);
-
-            if (isFinalQuestion)
-            {
-                UpdateMessageClientRpc("æ­£è§£ã¯ã“ã¡ã‚‰ï¼å…¨å•æ­£è§£è€…ã¯ã™ã”ã„ï¼");
-            }
-            else
-            {
-                UpdateMessageClientRpc("æ­£è§£ã¯ã“ã¡ã‚‰ï¼ã™ãã«æ¬¡ã®å•é¡ŒãŒå§‹ã¾ã‚‹ã®ã§æº–å‚™ã—ã¾ã—ã‚‡ã†ï¼");
-            }
+            items[i].CheckAnswer(correctID);
         }
     }
 
-    #endregion
-
-    #region ã‚¯ã‚¤ã‚ºç”Ÿæˆãƒ»åŒæœŸã‚³ã‚¢ãƒ­ã‚¸ãƒƒã‚¯
-
-    public void StartQuiz(Difficulty difficulty, float totalAnswerTime)
+    /// <summary>w’è ID ‚Ì°‚¾‚¯‚ğÁ‚·B‘SŒ‘–¸‚µ‚È‚¢B</summary>
+    public void DeleteFloorsByID(int targetID)
     {
-        if (!IsServer) return;
+        if (!this.floorsById.TryGetValue(targetID, out List<QuizFloor> list)) return;
 
-        int itemCount = (difficulty == Difficulty.Easy) ? 3 : (difficulty == Difficulty.Normal) ? 5 : 7;
-        int blankCount = (difficulty == Difficulty.Easy) ? 1 : (difficulty == Difficulty.Normal) ? 2 : 3;
-
-        List<int> allIndices = Enumerable.Range(0, fruitPrefabs.Count).ToList();
-        List<int> selectedIndices = allIndices.OrderBy(_ => System.Guid.NewGuid()).Take(itemCount).ToList();
-
-        int maxStartIndex = itemCount - blankCount;
-        int startIndex = Random.Range(0, maxStartIndex + 1);
-
-        List<int> correctSeq = selectedIndices.GetRange(startIndex, blankCount);
-
-        List<int> dummyPool = (difficulty == Difficulty.Easy) ? allIndices : selectedIndices;
-        List<List<int>> options = GenerateOptionsIndices(dummyPool, correctSeq, blankCount);
-
-        int correctPos = Random.Range(0, 4);
-        var temp = options[correctPos];
-        int originalCorrectPos = options.FindIndex(opt => opt.SequenceEqual(correctSeq));
-        options[originalCorrectPos] = temp;
-        options[correctPos] = correctSeq;
-
-        int[] seqArray = selectedIndices.ToArray();
-        int[] flatOptions = options.SelectMany(x => x).ToArray();
-
-        StartQuizClientRpc(difficulty, seqArray, startIndex, blankCount, flatOptions, correctPos, totalAnswerTime);
-    }
-
-    [ClientRpc]
-    private void StartQuizClientRpc(Difficulty difficulty, int[] sequence, int startIndex, int blankCount, int[] flatOptions, int correctPos, float totalAnswerTime)
-    {
-        if (clientDisplayCoroutine != null)
+        for (int i = 0; i < list.Count; i++)
         {
-            StopCoroutine(clientDisplayCoroutine);
-        }
-        clientDisplayCoroutine = StartCoroutine(QuizRoutineClient(difficulty, sequence, startIndex, blankCount, flatOptions, correctPos, totalAnswerTime));
-    }
-
-    private IEnumerator QuizRoutineClient(Difficulty difficulty, int[] sequence, int startIndex, int blankCount, int[] flatOptions, int correctPos, float totalAnswerTime)
-    {
-        ClearAllDisplays();
-        correctIndex = correctPos;
-
-        // 1. è¨˜æ†¶ãƒ•ã‚§ãƒ¼ã‚ºï¼ˆå•é¡Œå‡ºé¡Œä¸­ï¼‰
-        UpdateMessage("æ³¨ç›®ï¼");
-        foreach (int index in sequence)
-        {
-            GameObject obj = Instantiate(fruitPrefabs[index], displayPoint.position, Quaternion.identity, displayPoint);
-            SetWorldScale(obj, Vector3.one * fruitScale);
-            yield return new WaitForSeconds(showInterval);
-            Destroy(obj);
-            yield return new WaitForSeconds(0.2f);
-        }
-
-        // 2. ä¸­å¤®ã®å‡ºé¡Œè¡¨ç¤ºï¼ˆæœç‰© ï¼‹ ãƒãƒ†ãƒŠãƒœãƒƒã‚¯ã‚¹ï¼‰
-        DisplayQuestionPreview(sequence, startIndex, blankCount);
-
-        // 3. 4ãƒã‚¹ã®é¸æŠè‚¢è¡¨ç¤º
-        List<List<int>> options = new List<List<int>>();
-        for (int i = 0; i < 4; i++)
-        {
-            options.Add(flatOptions.Skip(i * blankCount).Take(blankCount).ToList());
-        }
-        DisplayOptions(options, blankCount);
-
-        // 4. è§£ç­”æ™‚é–“ã®ã‚«ã‚¦ãƒ³ãƒˆãƒ€ã‚¦ãƒ³è¡¨ç¤ºåˆ¶å¾¡
-        UpdateMessage("ï¼Ÿã«ã‚ã¦ã¯ã¾ã‚‹ã‚¢ã‚¤ãƒ†ãƒ ã®ã‚ã‚‹å ´æ‰€ã¸ç§»å‹•ã—ã¾ã—ã‚‡ã†ï¼");
-
-        float remainingTime = totalAnswerTime;
-        while (remainingTime > 0)
-        {
-            // æ®‹ã‚Šæ™‚é–“ãŒ5ç§’ä»¥ä¸‹ã«ãªã£ãŸã‚‰ã‚«ã‚¦ãƒ³ãƒˆãƒ€ã‚¦ãƒ³ãƒ†ã‚­ã‚¹ãƒˆï¼ˆã€Œ5ã€ã€Œ4ã€ã€Œ3ã€...ï¼‰ã«å¤‰æ›´
-            if (remainingTime <= 5.0f)
-            {
-                int countNum = Mathf.CeilToInt(remainingTime);
-                UpdateMessage(countNum.ToString());
-            }
-
-            yield return null;
-            remainingTime -= Time.deltaTime;
+            list[i].Dissolve();
         }
     }
 
-    private void DisplayQuestionPreview(int[] sequence, int startIndex, int blankCount)
+    /// <summary>Ÿ‚Ì–â‘è—p‚É‘S°‚ğ–ß‚·B</summary>
+    public void RestoreAll()
     {
-        int itemCount = sequence.Length;
-        float calculatedSpacing = (itemCount > 1) ? totalWidth / (itemCount - 1) : 0;
-
-        for (int i = 0; i < itemCount; i++)
+        QuizFloor[] items = this.floors.Items;
+        for (int i = 0; i < this.floors.Count; i++)
         {
-            float xPos = (itemCount > 1) ? -(totalWidth / 2.0f) + (i * calculatedSpacing) : 0;
-            Vector3 targetPosition = displayPoint.position + new Vector3(xPos, 0, 0);
-
-            if (i >= startIndex && i < startIndex + blankCount)
-            {
-                if (questionBlockPrefab != null)
-                {
-                    GameObject block = Instantiate(questionBlockPrefab, targetPosition, displayPoint.rotation, displayPoint);
-                    block.transform.localScale = Vector3.one * questionBlockScale;
-                }
-            }
-            else
-            {
-                GameObject fruit = Instantiate(fruitPrefabs[sequence[i]], targetPosition, displayPoint.rotation, displayPoint);
-                SetWorldScale(fruit, Vector3.one * fruitScale);
-            }
+            items[i].Restore();
         }
     }
-
-    private void DisplayOptions(List<List<int>> options, int blankCount)
-    {
-        for (int i = 0; i < 4; i++)
-        {
-            Transform point = optionPoints[i];
-            if (point == null) continue;
-
-            List<int> sequence = options[i];
-
-            for (int j = 0; j < sequence.Count; j++)
-            {
-                Vector3 offset = new Vector3((j - (blankCount - 1) / 2.0f) * optionSpacing, optionYOffset, 0);
-                Vector3 targetPos = point.position + offset;
-
-                GameObject fruit = Instantiate(fruitPrefabs[sequence[j]], targetPos, point.rotation, point);
-                SetWorldScale(fruit, Vector3.one * optionFruitScale);
-
-                Collider[] colliders = fruit.GetComponentsInChildren<Collider>();
-                foreach (Collider col in colliders) col.enabled = false;
-            }
-        }
-    }
-
-    [ClientRpc]
-    private void NotifyAnswerClientRpc(int correctID)
-    {
-        foreach (QuizFloor floor in floorList)
-        {
-            if (floor != null)
-            {
-                floor.CheckAnswer(correctID);
-            }
-        }
-    }
-
-    [ClientRpc]
-    private void ClearAllDisplaysClientRpc()
-    {
-        ClearAllDisplays();
-    }
-
-    [ClientRpc]
-    private void UpdateMessageClientRpc(string message)
-    {
-        UpdateMessage(message);
-    }
-
-    private void UpdateMessage(string message)
-    {
-        if (messageText != null)
-        {
-            messageText.text = message;
-        }
-    }
-
-    #endregion
-
-    #region ãƒ˜ãƒ«ãƒ‘ãƒ¼é–¢æ•°
-
-    private List<List<int>> GenerateOptionsIndices(List<int> pool, List<int> correct, int blankCount)
-    {
-        List<List<int>> optionsList = new List<List<int>> { correct };
-        HashSet<string> generatedKeys = new HashSet<string> { string.Join("_", correct) };
-
-        int attempts = 0;
-        while (optionsList.Count < 4 && attempts < 200)
-        {
-            attempts++;
-            List<int> dummy = pool.OrderBy(_ => System.Guid.NewGuid()).Take(blankCount).ToList();
-            string key = string.Join("_", dummy);
-
-            if (!generatedKeys.Contains(key))
-            {
-                generatedKeys.Add(key);
-                optionsList.Add(dummy);
-            }
-        }
-        return optionsList;
-    }
-
-    private void SetWorldScale(GameObject obj, Vector3 targetWorldScale)
-    {
-        obj.transform.localScale = Vector3.one;
-        Vector3 parentScale = obj.transform.lossyScale;
-        obj.transform.localScale = new Vector3(
-            targetWorldScale.x / (parentScale.x != 0 ? parentScale.x : 1f),
-            targetWorldScale.y / (parentScale.y != 0 ? parentScale.y : 1f),
-            targetWorldScale.z / (parentScale.z != 0 ? parentScale.z : 1f)
-        );
-    }
-
-    private void ClearAllDisplays()
-    {
-        if (displayPoint != null)
-        {
-            foreach (Transform child in displayPoint) Destroy(child.gameObject);
-        }
-        if (optionPoints != null)
-        {
-            foreach (Transform point in optionPoints)
-            {
-                if (point != null)
-                {
-                    foreach (Transform child in point) Destroy(child.gameObject);
-                }
-            }
-        }
-    }
-
-    #endregion
 }

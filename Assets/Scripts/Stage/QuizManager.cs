@@ -3,11 +3,18 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using Unity.Netcode;
+using TMPro;
 
 public enum Difficulty { Easy, Normal, Hard }
-=======
-using System.Collections.Generic;
-using UnityEngine;
+
+public class QuizManager : NetworkBehaviour
+{
+    [Header("デバッグ設定")]
+    [SerializeField] private bool isDebugMode = false;
+
+    [Header("UI設定")]
+    [SerializeField] private TMP_Text messageText; // 状況説明用の TextMeshPro
 
     [Header("床の管理")]
     private List<QuizFloor> floorList = new List<QuizFloor>();
@@ -16,247 +23,326 @@ using UnityEngine;
     [SerializeField] private List<GameObject> fruitPrefabs = new List<GameObject>();
 
     [Header("演出・補足用モデル")]
-    [SerializeField] private GameObject questionBlockPrefab; // ハテナブロックの3Dモデル
+    [SerializeField] private GameObject questionBlockPrefab;
 
     [Header("表示位置")]
-    [SerializeField] private Transform displayPoint; // 中央の展示場所
-    [SerializeField] private Transform[] optionPoints = new Transform[4]; // 4マスの解答表示場所（各床に対応）
+    [SerializeField] private Transform displayPoint;
+    [SerializeField] private Transform[] optionPoints = new Transform[4];
 
     [Header("演出設定")]
-    [SerializeField] private float showInterval = 1.2f; // 出題時に順番に見せる間隔（秒）
+    [SerializeField] private float showInterval = 1.0f; // 果物を1つずつ表示する間隔
 
     [Header("中央表示のサイズ・間隔調整")]
-    [SerializeField] private float fruitScale = 4.0f;        // 中央の野菜・果物の倍率
-    [SerializeField] private float questionBlockScale = 2.0f; // 中央のハテナブロックの倍率
-    [SerializeField] private float itemSpacing = 4.5f;        // 中央で並べる際の間隔
+    [SerializeField] private float fruitScale = 6.0f;
+    [SerializeField] private float questionBlockScale = 3.5f;
+    [SerializeField] private float totalWidth = 20.0f;
 
     [Header("選択肢（床側）のサイズ・位置調整")]
-    [SerializeField] private float optionFruitScale = 1.0f;  // 選択肢側の野菜・果物の倍率
-    [SerializeField] private float optionYOffset = 5.0f;     // 選択肢側のY軸浮かせ量
-    [SerializeField] private float optionSpacing = 2.0f;     // 選択肢側で並べる際の間隔
+    [SerializeField] private float optionFruitScale = 4.0f;
+    [SerializeField] private float optionYOffset = 0.5f;
+    [SerializeField] private float optionSpacing = 4.5f;
 
-    private List<GameObject> currentSequence = new List<GameObject>();
-    private int correctIndex; // 4マスのうちどこが正解か (0~3)
+    private int correctIndex;
+
+    private Coroutine gameSequenceCoroutine;
+    private Coroutine clientDisplayCoroutine;
 
     void Start()
     {
-        // シーン内の全てのQuizFloorを取得してリストに格納
         QuizFloor[] foundFloors = FindObjectsByType<QuizFloor>(FindObjectsSortMode.None);
         floorList.AddRange(foundFloors);
+    }
 
-        // 設定チェック
-        if (questionBlockPrefab == null)
+    public override void OnNetworkSpawn()
+    {
+        // サーバー（ホスト）側でのみ自動進行シーケンスを開始する
+        if (IsServer && !isDebugMode)
         {
-            Debug.LogError("QuizManager: Question Block Prefab が Inspector で設定されていません！");
+            gameSequenceCoroutine = StartCoroutine(AutoGameSequence());
         }
     }
 
     private void Update()
     {
-        if (Keyboard.current == null) return;
+        if (!IsSpawned) return;
 
-        // テスト用キー入力（クイズ開始）
-        if (Keyboard.current.digit1Key.wasPressedThisFrame || Keyboard.current.numpad1Key.wasPressedThisFrame) StartQuiz(Difficulty.Easy);
-        if (Keyboard.current.digit2Key.wasPressedThisFrame || Keyboard.current.numpad2Key.wasPressedThisFrame) StartQuiz(Difficulty.Normal);
-        if (Keyboard.current.digit3Key.wasPressedThisFrame || Keyboard.current.numpad3Key.wasPressedThisFrame) StartQuiz(Difficulty.Hard);
-
-        // テスト用キー入力（正解判定）
-        if (Keyboard.current.numpad4Key.wasPressedThisFrame || Keyboard.current.digit4Key.wasPressedThisFrame)
+        // デバッグモードがONの場合のみ手動キー入力を有効化
+        if (isDebugMode)
         {
-            ExecuteAnswerCheck();
+            if (Keyboard.current == null) return;
+
+            if (Keyboard.current.digit1Key.wasPressedThisFrame || Keyboard.current.numpad1Key.wasPressedThisFrame)
+            {
+                RequestStartQuizServerRpc(Difficulty.Easy);
+            }
+            if (Keyboard.current.digit2Key.wasPressedThisFrame || Keyboard.current.numpad2Key.wasPressedThisFrame)
+            {
+                RequestStartQuizServerRpc(Difficulty.Normal);
+            }
+            if (Keyboard.current.digit3Key.wasPressedThisFrame || Keyboard.current.numpad3Key.wasPressedThisFrame)
+            {
+                RequestStartQuizServerRpc(Difficulty.Hard);
+            }
+            if (Keyboard.current.digit4Key.wasPressedThisFrame || Keyboard.current.numpad4Key.wasPressedThisFrame)
+            {
+                ExecuteAnswerCheckServerRpc(false);
+            }
         }
     }
 
-    public void StartQuiz(Difficulty difficulty)
+    #region 自動進行シーケンス (90秒構成)
+
+    private IEnumerator AutoGameSequence()
     {
-        StopAllCoroutines();
-        StartCoroutine(QuizRoutine(difficulty));
+        // 1. 最初の10秒：説明待機時間
+        UpdateMessageClientRpc("これから表示される様々なアイテムを順番通りに覚えましょう！問題はどんどん難しくなります！");
+        yield return new WaitForSeconds(10.0f);
+
+        // 2. 10秒〜30秒（20秒間）：簡単問題
+        // (演出時間約3.6秒 + 思考時間11.4秒 = 計15秒の後に判定)
+        StartQuiz(Difficulty.Easy, totalAnswerTime: 11.4f);
+        yield return new WaitForSeconds(15.0f);
+        ExecuteAnswerCheck(isFinalQuestion: false);
+        yield return new WaitForSeconds(5.0f);  // 余韻時間
+
+        // 3. 30秒〜55秒（25秒間）：普通問題
+        // (演出時間約6.0秒 + 思考時間14.0秒 = 計20秒の後に判定)
+        StartQuiz(Difficulty.Normal, totalAnswerTime: 14.0f);
+        yield return new WaitForSeconds(20.0f);
+        ExecuteAnswerCheck(isFinalQuestion: false);
+        yield return new WaitForSeconds(5.0f);
+
+        // 4. 55秒〜85秒（30秒間）：激ムズ問題
+        // (演出時間約8.4秒 + 思考時間16.6秒 = 計25秒の後に判定)
+        StartQuiz(Difficulty.Hard, totalAnswerTime: 16.6f);
+        yield return new WaitForSeconds(25.0f);
+        ExecuteAnswerCheck(isFinalQuestion: true);
+        yield return new WaitForSeconds(5.0f);
+
+        // 5. 85秒〜90秒（5秒間）：終了
+        ClearAllDisplaysClientRpc();
+        UpdateMessageClientRpc(""); // テキストクリア
     }
 
-    private IEnumerator QuizRoutine(Difficulty difficulty)
+    #endregion
+
+    #region デバッグ・RPC要求処理
+
+    [ServerRpc(RequireOwnership = false)]
+    private void RequestStartQuizServerRpc(Difficulty difficulty)
+    {
+        // デバッグ用（思考時間は仮で10秒設定）
+        StartQuiz(difficulty, 10.0f);
+    }
+
+    [ServerRpc(RequireOwnership = false)]
+    private void ExecuteAnswerCheckServerRpc(bool isFinalQuestion)
+    {
+        ExecuteAnswerCheck(isFinalQuestion);
+    }
+
+    public void ExecuteAnswerCheck(bool isFinalQuestion = false)
+    {
+        if (IsServer)
+        {
+            NotifyAnswerClientRpc(correctIndex);
+
+            if (isFinalQuestion)
+            {
+                UpdateMessageClientRpc("正解はこちら！全問正解者はすごい！");
+            }
+            else
+            {
+                UpdateMessageClientRpc("正解はこちら！すぐに次の問題が始まるので準備しましょう！");
+            }
+        }
+    }
+
+    #endregion
+
+    #region クイズ生成・同期コアロジック
+
+    public void StartQuiz(Difficulty difficulty, float totalAnswerTime)
+    {
+        if (!IsServer) return;
+
+        int itemCount = (difficulty == Difficulty.Easy) ? 3 : (difficulty == Difficulty.Normal) ? 5 : 7;
+        int blankCount = (difficulty == Difficulty.Easy) ? 1 : (difficulty == Difficulty.Normal) ? 2 : 3;
+
+        List<int> allIndices = Enumerable.Range(0, fruitPrefabs.Count).ToList();
+        List<int> selectedIndices = allIndices.OrderBy(_ => System.Guid.NewGuid()).Take(itemCount).ToList();
+
+        int maxStartIndex = itemCount - blankCount;
+        int startIndex = Random.Range(0, maxStartIndex + 1);
+
+        List<int> correctSeq = selectedIndices.GetRange(startIndex, blankCount);
+
+        List<int> dummyPool = (difficulty == Difficulty.Easy) ? allIndices : selectedIndices;
+        List<List<int>> options = GenerateOptionsIndices(dummyPool, correctSeq, blankCount);
+
+        int correctPos = Random.Range(0, 4);
+        var temp = options[correctPos];
+        int originalCorrectPos = options.FindIndex(opt => opt.SequenceEqual(correctSeq));
+        options[originalCorrectPos] = temp;
+        options[correctPos] = correctSeq;
+
+        int[] seqArray = selectedIndices.ToArray();
+        int[] flatOptions = options.SelectMany(x => x).ToArray();
+
+        StartQuizClientRpc(difficulty, seqArray, startIndex, blankCount, flatOptions, correctPos, totalAnswerTime);
+    }
+
+    [ClientRpc]
+    private void StartQuizClientRpc(Difficulty difficulty, int[] sequence, int startIndex, int blankCount, int[] flatOptions, int correctPos, float totalAnswerTime)
+    {
+        if (clientDisplayCoroutine != null)
+        {
+            StopCoroutine(clientDisplayCoroutine);
+        }
+        clientDisplayCoroutine = StartCoroutine(QuizRoutineClient(difficulty, sequence, startIndex, blankCount, flatOptions, correctPos, totalAnswerTime));
+    }
+
+    private IEnumerator QuizRoutineClient(Difficulty difficulty, int[] sequence, int startIndex, int blankCount, int[] flatOptions, int correctPos, float totalAnswerTime)
     {
         ClearAllDisplays();
+        correctIndex = correctPos;
 
-        int itemCount = 7;
-        int blankCount = 3;
-
-        switch (difficulty)
+        // 1. 記憶フェーズ（問題出題中）
+        UpdateMessage("注目！");
+        foreach (int index in sequence)
         {
-            case Difficulty.Easy:
-                itemCount = 5;
-                blankCount = 1;
-                break;
-            case Difficulty.Normal:
-                itemCount = 7;
-                blankCount = 3;
-                break;
-            case Difficulty.Hard:
-                itemCount = 9;
-                blankCount = 4;
-                break;
-        }
-
-        List<GameObject> selectedPrefabs = fruitPrefabs.OrderBy(_ => System.Guid.NewGuid()).Take(itemCount).ToList();
-        currentSequence = new List<GameObject>(selectedPrefabs);
-
-        // 3. 【記憶フェーズ】プレイヤーに順番に見せる（中央：4倍）
-        Debug.Log($"【{difficulty}】順番を覚えてください！");
-        foreach (var prefab in currentSequence)
-        {
-            GameObject obj = Instantiate(prefab, displayPoint.position, Quaternion.identity, displayPoint);
+            GameObject obj = Instantiate(fruitPrefabs[index], displayPoint.position, Quaternion.identity, displayPoint);
             SetWorldScale(obj, Vector3.one * fruitScale);
             yield return new WaitForSeconds(showInterval);
             Destroy(obj);
             yield return new WaitForSeconds(0.2f);
         }
 
-        int maxStartIndex = itemCount - blankCount;
-        int startIndex = Random.Range(0, maxStartIndex + 1);
+        // 2. 中央の出題表示（果物 ＋ ハテナボックス）
+        DisplayQuestionPreview(sequence, startIndex, blankCount);
 
-        List<GameObject> correctAnswer = currentSequence.GetRange(startIndex, blankCount);
-
-        // 5. 中央の展示場所に全体像（ハテナブロック含む）を表示
-        DisplayQuestionPreview(itemCount, startIndex, blankCount);
-
-        // 6. 選択肢（4択）の作成
-        List<GameObject> dummyPool = (difficulty == Difficulty.Easy) ? fruitPrefabs : selectedPrefabs;
-        List<List<GameObject>> options = GenerateOptions(dummyPool, correctAnswer, blankCount);
-
-        correctIndex = Random.Range(0, 4);
-        var temp = options[correctIndex];
-        int originalCorrectPos = options.FindIndex(opt => SequenceEqual(opt, correctAnswer));
-        options[originalCorrectPos] = temp;
-        options[correctIndex] = correctAnswer;
-
-        // 7. 4つの床に選択肢を3D配置（5f上、サイズ1.0f、変形防止）
+        // 3. 4マスの選択肢表示
+        List<List<int>> options = new List<List<int>>();
+        for (int i = 0; i < 4; i++)
+        {
+            options.Add(flatOptions.Skip(i * blankCount).Take(blankCount).ToList());
+        }
         DisplayOptions(options, blankCount);
 
-        Debug.Log($"出題完了！正解の床は Index: {correctIndex} です。");
+        // 4. 解答時間のカウントダウン表示制御
+        UpdateMessage("？にあてはまるアイテムのある場所へ移動しましょう！");
 
-    }
-
-    private void Awake()
-    {
-        if (instance != null && instance != this)
+        float remainingTime = totalAnswerTime;
+        while (remainingTime > 0)
         {
-            Debug.LogWarning($"[QuizManager] '{this.name}' は 2 個目なので無効化します。", this);
-            this.enabled = false;
-            return;
-        }
-        instance = this;
-    }
+            // 残り時間が5秒以下になったらカウントダウンテキスト（「5」「4」「3」...）に変更
+            if (remainingTime <= 5.0f)
+            {
+                int countNum = Mathf.CeilToInt(remainingTime);
+                UpdateMessage(countNum.ToString());
+            }
 
-    private void OnDestroy()
-    {
-        if (instance == this) instance = null;
-    }
-
-    // --- 床の登録 -----------------------------------------------------------
-
-    public void RegisterFloor(QuizFloor floor)
-    {
-        if (floor == null) return;
-
-        this.floors.Add(floor);
-
-        if (!this.floorsById.TryGetValue(floor.FloorID, out List<QuizFloor> list))
-        {
-            list = new List<QuizFloor>(4);
-            this.floorsById[floor.FloorID] = list;
-        }
-        if (!list.Contains(floor)) list.Add(floor);
-    }
-
-    /// <summary>床側の OnDisable から呼ばれる。Manager が既に消えていても安全なように static。</summary>
-    public static void UnregisterFloor(QuizFloor floor)
-    {
-        if (instance == null || floor == null) return;
-
-        instance.floors.Remove(floor);
-
-        if (instance.floorsById.TryGetValue(floor.FloorID, out List<QuizFloor> list))
-        {
-            list.Remove(floor);
+            yield return null;
+            remainingTime -= Time.deltaTime;
         }
     }
 
-    // --- 操作 ---------------------------------------------------------------
-
-    /// <summary>
-    /// 中央の出題スペースに全体の並びを表示し、虫食い部分にハテナブロックを置く
-    /// </summary>
-    private void DisplayQuestionPreview(int itemCount, int startIndex, int blankCount)
+    private void DisplayQuestionPreview(int[] sequence, int startIndex, int blankCount)
     {
+        int itemCount = sequence.Length;
+        float calculatedSpacing = (itemCount > 1) ? totalWidth / (itemCount - 1) : 0;
+
         for (int i = 0; i < itemCount; i++)
         {
-            Vector3 offset = new Vector3((i - (itemCount - 1) / 2.0f) * itemSpacing, 0, 0);
+            float xPos = (itemCount > 1) ? -(totalWidth / 2.0f) + (i * calculatedSpacing) : 0;
+            Vector3 targetPosition = displayPoint.position + new Vector3(xPos, 0, 0);
 
             if (i >= startIndex && i < startIndex + blankCount)
             {
                 if (questionBlockPrefab != null)
                 {
-                    GameObject block = Instantiate(questionBlockPrefab, displayPoint.position + offset, Quaternion.identity, displayPoint);
-                    SetWorldScale(block, Vector3.one * questionBlockScale);
+                    GameObject block = Instantiate(questionBlockPrefab, targetPosition, displayPoint.rotation, displayPoint);
+                    block.transform.localScale = Vector3.one * questionBlockScale;
                 }
             }
             else
             {
-                GameObject fruit = Instantiate(currentSequence[i], displayPoint.position + offset, Quaternion.identity, displayPoint);
+                GameObject fruit = Instantiate(fruitPrefabs[sequence[i]], targetPosition, displayPoint.rotation, displayPoint);
                 SetWorldScale(fruit, Vector3.one * fruitScale);
             }
         }
     }
 
-    /// <summary>
-    /// 4マスの選択肢位置にモデルを並べて表示する
-    /// </summary>
-    private void DisplayOptions(List<List<GameObject>> options, int blankCount)
+    private void DisplayOptions(List<List<int>> options, int blankCount)
     {
         for (int i = 0; i < 4; i++)
         {
             Transform point = optionPoints[i];
-            List<GameObject> sequence = options[i];
+            if (point == null) continue;
+
+            List<int> sequence = options[i];
 
             for (int j = 0; j < sequence.Count; j++)
             {
                 Vector3 offset = new Vector3((j - (blankCount - 1) / 2.0f) * optionSpacing, optionYOffset, 0);
+                Vector3 targetPos = point.position + offset;
 
-                GameObject fruit = Instantiate(sequence[j], point.position + offset, Quaternion.identity, point);
-
-                // 親（point）の変形を引き継がないように見た目の大きさを直す
+                GameObject fruit = Instantiate(fruitPrefabs[sequence[j]], targetPos, point.rotation, point);
                 SetWorldScale(fruit, Vector3.one * optionFruitScale);
+
+                Collider[] colliders = fruit.GetComponentsInChildren<Collider>();
+                foreach (Collider col in colliders) col.enabled = false;
             }
         }
     }
 
-    /// <summary>
-    /// 親オブジェクトのスケール影響を打ち消し、見た目の絶対サイズを指定する補助関数
-    /// </summary>
-    private void SetWorldScale(GameObject obj, Vector3 targetWorldScale)
+    [ClientRpc]
+    private void NotifyAnswerClientRpc(int correctID)
     {
-        obj.transform.localScale = Vector3.one;
-        Vector3 parentScale = obj.transform.lossyScale;
-
-        // 親のスケールで割ることで、親の変形を相殺する
-        obj.transform.localScale = new Vector3(
-            targetWorldScale.x / (parentScale.x != 0 ? parentScale.x : 1f),
-            targetWorldScale.y / (parentScale.y != 0 ? parentScale.y : 1f),
-            targetWorldScale.z / (parentScale.z != 0 ? parentScale.z : 1f)
-        );
+        foreach (QuizFloor floor in floorList)
+        {
+            if (floor != null)
+            {
+                floor.CheckAnswer(correctID);
+            }
+        }
     }
 
-    private List<List<GameObject>> GenerateOptions(List<GameObject> availablePool, List<GameObject> correct, int blankCount)
+    [ClientRpc]
+    private void ClearAllDisplaysClientRpc()
     {
-        List<List<GameObject>> optionsList = new List<List<GameObject>> { correct };
-        HashSet<string> generatedKeys = new HashSet<string> { GetSequenceKey(correct) };
+        ClearAllDisplays();
+    }
+
+    [ClientRpc]
+    private void UpdateMessageClientRpc(string message)
+    {
+        UpdateMessage(message);
+    }
+
+    private void UpdateMessage(string message)
+    {
+        if (messageText != null)
+        {
+            messageText.text = message;
+        }
+    }
+
+    #endregion
+
+    #region ヘルパー関数
+
+    private List<List<int>> GenerateOptionsIndices(List<int> pool, List<int> correct, int blankCount)
+    {
+        List<List<int>> optionsList = new List<List<int>> { correct };
+        HashSet<string> generatedKeys = new HashSet<string> { string.Join("_", correct) };
 
         int attempts = 0;
         while (optionsList.Count < 4 && attempts < 200)
         {
             attempts++;
-
-            List<GameObject> dummy = availablePool.OrderBy(_ => System.Guid.NewGuid()).Take(blankCount).ToList();
-            string key = GetSequenceKey(dummy);
+            List<int> dummy = pool.OrderBy(_ => System.Guid.NewGuid()).Take(blankCount).ToList();
+            string key = string.Join("_", dummy);
 
             if (!generatedKeys.Contains(key))
             {
@@ -264,8 +350,18 @@ using UnityEngine;
                 optionsList.Add(dummy);
             }
         }
-
         return optionsList;
+    }
+
+    private void SetWorldScale(GameObject obj, Vector3 targetWorldScale)
+    {
+        obj.transform.localScale = Vector3.one;
+        Vector3 parentScale = obj.transform.lossyScale;
+        obj.transform.localScale = new Vector3(
+            targetWorldScale.x / (parentScale.x != 0 ? parentScale.x : 1f),
+            targetWorldScale.y / (parentScale.y != 0 ? parentScale.y : 1f),
+            targetWorldScale.z / (parentScale.z != 0 ? parentScale.z : 1f)
+        );
     }
 
     private void ClearAllDisplays()
@@ -274,7 +370,6 @@ using UnityEngine;
         {
             foreach (Transform child in displayPoint) Destroy(child.gameObject);
         }
-
         if (optionPoints != null)
         {
             foreach (Transform point in optionPoints)
@@ -287,53 +382,5 @@ using UnityEngine;
         }
     }
 
-    private bool SequenceEqual(List<GameObject> a, List<GameObject> b)
-    {
-        if (a.Count != b.Count) return false;
-        for (int i = 0; i < a.Count; i++) if (a[i] != b[i]) return false;
-        return true;
-    }
-
-    private string GetSequenceKey(List<GameObject> list)
-    {
-        return string.Join("_", list.Select(x => x.name));
-    }
-
-    public void ExecuteAnswerCheck()
-    {
-        NotifyAnswer(correctIndex);
-    }
-
-
-    public void NotifyAnswer(int correctID)
-    {
-        // 配列をそのまま前から回す。null チェックが不要なのは、
-        // 床が OnDisable で自分を外すので、ここに死んだ参照が残らないため。
-        QuizFloor[] items = this.floors.Items;
-        for (int i = 0; i < this.floors.Count; i++)
-        {
-            items[i].CheckAnswer(correctID);
-        }
-    }
-
-    /// <summary>指定 ID の床だけを消す。全件走査しない。</summary>
-    public void DeleteFloorsByID(int targetID)
-    {
-        if (!this.floorsById.TryGetValue(targetID, out List<QuizFloor> list)) return;
-
-        for (int i = 0; i < list.Count; i++)
-        {
-            list[i].Dissolve();
-        }
-    }
-
-    /// <summary>次の問題用に全床を戻す。</summary>
-    public void RestoreAll()
-    {
-        QuizFloor[] items = this.floors.Items;
-        for (int i = 0; i < this.floors.Count; i++)
-        {
-            items[i].Restore();
-        }
-    }
+    #endregion
 }

@@ -7,9 +7,5 @@ public class LinkPlayerToObject : MonoBehaviour, IInteractable
     public void Interact(PlayerController player)
     {
         // プレイヤーをリンクさせる
-        foreach (var bombSensorField in bombSensorFields)
-        {
-            bombSensorField.SetPlayerController(player);
-        }
     }
 }

@@ -3,6 +3,7 @@ using UnityEngine;
 public class PlayerSpawner : MonoBehaviour
 {
     [SerializeField] private Transform[] spawnPoints;
+    [SerializeField] private IInteractable interactableObject; // リンクするオブジェクトを指定するためのフィールド
     
     public void SpawnPlayer(PlayerController player, int spawnIndex)
     {
@@ -29,5 +30,9 @@ public class PlayerSpawner : MonoBehaviour
         PlayerItem playerItem = player.GetComponent<PlayerItem>();
         playerItem.ClearAllWeapons();
 
+        if (interactableObject != null)
+        {
+            interactableObject.Interact(player);
+        }
     }
 }

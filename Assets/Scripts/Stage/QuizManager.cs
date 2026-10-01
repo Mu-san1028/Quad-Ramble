@@ -2,23 +2,23 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// ã‚¯ã‚¤ã‚ºåºŠã®å–ã‚Šã¾ã¨ã‚å½¹ã€‚
+/// ƒNƒCƒY°‚Ìæ‚è‚Ü‚Æ‚ß–ğB
 ///
-/// æ—§å®Ÿè£…ã‹ã‚‰ã®å¤‰æ›´ç‚¹:
-/// - Start ã§ã® FindObjectsByType&lt;QuizFloor&gt;() ã‚’ã‚„ã‚ãŸã€‚
-///   ã‚·ãƒ¼ãƒ³ä¸­ã®å…¨ GameObject ã‚’èµ°æŸ»ã™ã‚‹ã†ãˆã€çµæœã®é…åˆ—ã‚‚ç¢ºä¿ã•ã‚Œã‚‹ã€‚
-///   ã•ã‚‰ã«ã€å¾Œã‹ã‚‰ç”Ÿæˆã—ãŸåºŠã¯æ‹¾ãˆãšã€ç ´æ£„ã•ã‚ŒãŸåºŠã¯ List ã« null ã¨ã—ã¦æ®‹ã‚Šç¶šã‘ã¦ã„ãŸã€‚
-///   åºŠãŒè‡ªåˆ†ã§ç™»éŒ²ï¼è§£é™¤ã™ã‚‹å½¢ã«ã—ã¦ã€ã“ã® 3 ã¤ã‚’ã¾ã¨ã‚ã¦è§£æ¶ˆã—ãŸã€‚
-/// - ID å¼•ãã® Dictionary ã‚’æŒãŸã›ã€ç‰¹å®š ID ã®åºŠã ã‘ã‚’æ¶ˆã™æ“ä½œã‚’å…¨ä»¶èµ°æŸ»ãªã—ã§ã§ãã‚‹ã‚ˆã†ã«ã—ãŸã€‚
+/// ‹ŒÀ‘•‚©‚ç‚Ì•ÏX“_:
+/// - Start ‚Å‚Ì FindObjectsByType&lt;QuizFloor&gt;() ‚ğ‚â‚ß‚½B
+///   ƒV[ƒ“’†‚Ì‘S GameObject ‚ğ‘–¸‚·‚é‚¤‚¦AŒ‹‰Ê‚Ì”z—ñ‚àŠm•Û‚³‚ê‚éB
+///   ‚³‚ç‚ÉAŒã‚©‚ç¶¬‚µ‚½°‚ÍE‚¦‚¸A”jŠü‚³‚ê‚½°‚Í List ‚É null ‚Æ‚µ‚Äc‚è‘±‚¯‚Ä‚¢‚½B
+///   °‚ª©•ª‚Å“o˜^^‰ğœ‚·‚éŒ`‚É‚µ‚ÄA‚±‚Ì 3 ‚Â‚ğ‚Ü‚Æ‚ß‚Ä‰ğÁ‚µ‚½B
+/// - ID ˆø‚«‚Ì Dictionary ‚ğ‚½‚¹A“Á’è ID ‚Ì°‚¾‚¯‚ğÁ‚·‘€ì‚ğ‘SŒ‘–¸‚È‚µ‚Å‚Å‚«‚é‚æ‚¤‚É‚µ‚½B
 /// </summary>
 public class QuizManager : MonoBehaviour
 {
     private static QuizManager instance;
 
-    // å…¨åºŠã€‚NotifyAnswer ã®ã‚ˆã†ã«å…¨ä»¶ã¸é…ã‚‹æ“ä½œã¯ã“ã¡ã‚‰ã‚’ä½¿ã†ã€‚
+    // ‘S°BNotifyAnswer ‚Ì‚æ‚¤‚É‘SŒ‚Ö”z‚é‘€ì‚Í‚±‚¿‚ç‚ğg‚¤B
     private readonly StageRegistry<QuizFloor> floors = new StageRegistry<QuizFloor>();
 
-    // ID å¼•ãã€‚DeleteFloorsByID ã‚’å…¨ä»¶èµ°æŸ»ãªã—ã§æ¸ˆã¾ã›ã‚‹ãŸã‚ã€‚
+    // ID ˆø‚«BDeleteFloorsByID ‚ğ‘SŒ‘–¸‚È‚µ‚ÅÏ‚Ü‚¹‚é‚½‚ßB
     private readonly Dictionary<int, List<QuizFloor>> floorsById = new Dictionary<int, List<QuizFloor>>(16);
 
     public int FloorCount => this.floors.Count;
@@ -27,8 +27,8 @@ public class QuizManager : MonoBehaviour
     private static void ResetStatics() => instance = null;
 
     /// <summary>
-    /// ã‚·ãƒ¼ãƒ³ã«ç½®ã‹ã‚Œã¦ã„ã‚Œã°ãã‚Œã‚’ã€ãªã‘ã‚Œã°è‡ªå‹•ç”Ÿæˆã™ã‚‹ã€‚
-    /// åºŠã® OnEnable ãŒ Awake ã‚ˆã‚Šå…ˆã«èµ°ã£ã¦ã‚‚ç™»éŒ²ã§ãã‚‹ã‚ˆã†ã«ã™ã‚‹ãŸã‚ã€‚
+    /// ƒV[ƒ“‚É’u‚©‚ê‚Ä‚¢‚ê‚Î‚»‚ê‚ğA‚È‚¯‚ê‚Î©“®¶¬‚·‚éB
+    /// °‚Ì OnEnable ‚ª Awake ‚æ‚èæ‚É‘–‚Á‚Ä‚à“o˜^‚Å‚«‚é‚æ‚¤‚É‚·‚é‚½‚ßB
     /// </summary>
     public static QuizManager Instance
     {
@@ -36,7 +36,7 @@ public class QuizManager : MonoBehaviour
         {
             if (instance != null) return instance;
 
-            // æ¢ç´¢ã¯ã“ã“ã§ã® 1 å›ã ã‘ã€‚æ¯ãƒ•ãƒ¬ãƒ¼ãƒ ã¯èµ°ã‚‰ãªã„ã€‚
+            // ’Tõ‚Í‚±‚±‚Å‚Ì 1 ‰ñ‚¾‚¯B–ˆƒtƒŒ[ƒ€‚Í‘–‚ç‚È‚¢B
             instance = FindFirstObjectByType<QuizManager>();
             if (instance != null) return instance;
 
@@ -51,7 +51,7 @@ public class QuizManager : MonoBehaviour
     {
         if (instance != null && instance != this)
         {
-            Debug.LogWarning($"[QuizManager] '{this.name}' ã¯ 2 å€‹ç›®ãªã®ã§ç„¡åŠ¹åŒ–ã—ã¾ã™ã€‚", this);
+            Debug.LogWarning($"[QuizManager] '{this.name}' ‚Í 2 ŒÂ–Ú‚È‚Ì‚Å–³Œø‰»‚µ‚Ü‚·B", this);
             this.enabled = false;
             return;
         }
@@ -63,7 +63,7 @@ public class QuizManager : MonoBehaviour
         if (instance == this) instance = null;
     }
 
-    // --- åºŠã®ç™»éŒ² -----------------------------------------------------------
+    // --- °‚Ì“o˜^ -----------------------------------------------------------
 
     public void RegisterFloor(QuizFloor floor)
     {
@@ -79,7 +79,7 @@ public class QuizManager : MonoBehaviour
         if (!list.Contains(floor)) list.Add(floor);
     }
 
-    /// <summary>åºŠå´ã® OnDisable ã‹ã‚‰å‘¼ã°ã‚Œã‚‹ã€‚Manager ãŒæ—¢ã«æ¶ˆãˆã¦ã„ã¦ã‚‚å®‰å…¨ãªã‚ˆã†ã« staticã€‚</summary>
+    /// <summary>°‘¤‚Ì OnDisable ‚©‚çŒÄ‚Î‚ê‚éBManager ‚ªŠù‚ÉÁ‚¦‚Ä‚¢‚Ä‚àˆÀ‘S‚È‚æ‚¤‚É staticB</summary>
     public static void UnregisterFloor(QuizFloor floor)
     {
         if (instance == null || floor == null) return;
@@ -92,15 +92,15 @@ public class QuizManager : MonoBehaviour
         }
     }
 
-    // --- æ“ä½œ ---------------------------------------------------------------
+    // --- ‘€ì ---------------------------------------------------------------
 
     /// <summary>
-    /// æ­£è§£ ID ã‚’å…¨åºŠã¸é…ã‚‹ã€‚ID ãŒé•ã†åºŠãŒæ¶ˆãˆã‚‹ã€‚
+    /// ³‰ğ ID ‚ğ‘S°‚Ö”z‚éBID ‚ªˆá‚¤°‚ªÁ‚¦‚éB
     /// </summary>
     public void NotifyAnswer(int correctID)
     {
-        // é…åˆ—ã‚’ãã®ã¾ã¾å‰ã‹ã‚‰å›ã™ã€‚null ãƒã‚§ãƒƒã‚¯ãŒä¸è¦ãªã®ã¯ã€
-        // åºŠãŒ OnDisable ã§è‡ªåˆ†ã‚’å¤–ã™ã®ã§ã€ã“ã“ã«æ­»ã‚“ã å‚ç…§ãŒæ®‹ã‚‰ãªã„ãŸã‚ã€‚
+        // ”z—ñ‚ğ‚»‚Ì‚Ü‚Ü‘O‚©‚ç‰ñ‚·Bnull ƒ`ƒFƒbƒN‚ª•s—v‚È‚Ì‚ÍA
+        // °‚ª OnDisable ‚Å©•ª‚ğŠO‚·‚Ì‚ÅA‚±‚±‚É€‚ñ‚¾QÆ‚ªc‚ç‚È‚¢‚½‚ßB
         QuizFloor[] items = this.floors.Items;
         for (int i = 0; i < this.floors.Count; i++)
         {
@@ -108,7 +108,7 @@ public class QuizManager : MonoBehaviour
         }
     }
 
-    /// <summary>æŒ‡å®š ID ã®åºŠã ã‘ã‚’æ¶ˆã™ã€‚å…¨ä»¶èµ°æŸ»ã—ãªã„ã€‚</summary>
+    /// <summary>w’è ID ‚Ì°‚¾‚¯‚ğÁ‚·B‘SŒ‘–¸‚µ‚È‚¢B</summary>
     public void DeleteFloorsByID(int targetID)
     {
         if (!this.floorsById.TryGetValue(targetID, out List<QuizFloor> list)) return;
@@ -119,7 +119,7 @@ public class QuizManager : MonoBehaviour
         }
     }
 
-    /// <summary>æ¬¡ã®å•é¡Œç”¨ã«å…¨åºŠã‚’æˆ»ã™ã€‚</summary>
+    /// <summary>Ÿ‚Ì–â‘è—p‚É‘S°‚ğ–ß‚·B</summary>
     public void RestoreAll()
     {
         QuizFloor[] items = this.floors.Items;

@@ -259,6 +259,22 @@ public class PlayerController : NetworkBehaviour
     }
     #endregion
 
+    #region コース上のトリガー（セーブポイント・落下）の報告
+    // サーバー上では他人のプレイヤーに OnTriggerEnter が来ないことがあるので、本人の端末が判定して報告する
+
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Owner)]
+    public void ReportSavePointServerRpc(int order, Vector3 position, Quaternion rotation)
+    {
+        SavePoint.Apply(this, order, position, rotation);
+    }
+
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Owner)]
+    public void ReportDropOutServerRpc(int respawnLimit, bool respawnAtStart)
+    {
+        DropOutSensor.Apply(this, respawnLimit, respawnAtStart);
+    }
+    #endregion
+
     #region 入力イベント
     void OnJump(InputValue value)
     {
@@ -352,6 +368,13 @@ public class PlayerController : NetworkBehaviour
     public void VelocityChange(Vector3 externalAcceleration)
     {
         velocity += externalAcceleration;
+    }
+
+    /// <summary>ジャンプ台などで真上に打ち上げる。今の縦速度より速いときだけ上書きする</summary>
+    public void Launch(float upwardSpeed)
+    {
+        if (!this.IsControllable) return;
+        velocity.y = Mathf.Max(velocity.y, upwardSpeed);
     }
 
     void Update()

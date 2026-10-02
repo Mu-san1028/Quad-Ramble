@@ -20,6 +20,7 @@ public class PlayerSpawner : MonoBehaviour
 
         // 前のラウンドのセーブポイントを持ち越さない
         SavePointRegistry.Clear(player);
+        SavePointRegistry.RecordStart(player, spawnPoint.position, spawnPoint.rotation);
 
         // プレイヤーをスポーンさせる
         player.Teleport(spawnPoint.position, spawnPoint.rotation);

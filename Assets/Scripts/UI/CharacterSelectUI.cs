@@ -27,6 +27,46 @@ public class CharacterSelectUI : MonoBehaviour
         if (ConnectionContainer.Instance != null) this.HandleContainerReady(ConnectionContainer.Instance);
     }
 
+    public bool IsInputReady
+    {
+        get
+        {
+            return this.panel != null
+                && this.panel.activeInHierarchy
+                && this.icons.Count > 0;
+        }
+    }
+    public void HidePanel()
+    {
+        if (this.panel != null)
+            this.panel.SetActive(false);
+    }
+
+
+    public void SelectFirstAvailable()
+    {
+        if (EventSystem.current == null)
+            return;
+
+        foreach (CharacterIconButton icon in this.icons)
+        {
+            if (icon == null || icon.Button == null)
+                continue;
+
+            if (!icon.Button.gameObject.activeInHierarchy
+                || !icon.Button.IsInteractable())
+            {
+                continue;
+            }
+
+            EventSystem.current.SetSelectedGameObject(
+                icon.Button.gameObject
+            );
+
+            return;
+        }
+    }
+
     private void OnDestroy()
     {
         ConnectionContainer.OnInstanceReady -= this.HandleContainerReady;

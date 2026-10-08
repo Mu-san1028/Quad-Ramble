@@ -36,15 +36,35 @@ public class ConnectionContainer : NetworkBehaviour
     private readonly NetworkVariable<int> currentRound = new ();
     public int CurrentRound => this.currentRound.Value;
 
+    private readonly NetworkVariable<int> requiredPlayerCount = new(4);
+
+    public int RequiredPlayerCount => this.requiredPlayerCount.Value;
+
+    private int initialRequiredPlayers = 4;
+
+    public void InitializeRequiredPlayers(int count)
+    {
+        // NetworkConnectから、Spawn前に呼ぶ。
+        if (this.IsSpawned)
+            return;
+
+        this.initialRequiredPlayers = Mathf.Clamp(count, 1, 4);
+    }
+
+
     public override void OnNetworkSpawn()
     {
+        // ホスト側で初期値を確定してから、利用側へ準備完了を通知する。
+        if (this.IsServer)
+        {
+            this.requiredPlayerCount.Value = this.initialRequiredPlayers;
+
+            NetworkManager.Singleton.OnClientDisconnectCallback
+                += this.HandleClientDisconnect;
+        }
+
         Instance = this;
         OnInstanceReady?.Invoke(this);
-
-        if (IsServer)
-        {
-            NetworkManager.Singleton.OnClientDisconnectCallback += this.HandleClientDisconnect;
-        }
     }
     public override void OnNetworkDespawn()
     {
@@ -69,10 +89,20 @@ public class ConnectionContainer : NetworkBehaviour
     }
     
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
-    private void AppendServerRpc(ulong clientId)
+private void AppendServerRpc(ulong clientId, RpcParams rpcParams = default)
     {
-        // 名簿の追加はサーバーだけが行う。名前はキャラを選んだときに入るので、それまでの仮名
-        this.connections.Add(new Connection((ulong)this.connections.Count, clientId) { Name = "Player" });
+        // 引数で別人のIDを渡されても、登録するのは送信者本人。
+        ulong senderId = rpcParams.Receive.SenderClientId;
+
+        if (this.GetConnection(senderId) != null)
+            return;
+
+        this.connections.Add(
+            new Connection((ulong)this.connections.Count, senderId)
+            {
+                Name = "Player"
+            }
+        );
 
         this.BroadcastRoster();
     }

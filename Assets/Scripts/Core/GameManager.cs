@@ -40,7 +40,7 @@ public class GameManager : MonoBehaviour
 
         if (NetworkManager.Singleton.IsServer
             && ConnectionContainer.Instance != null
-            && ConnectionContainer.Instance.IsEveryoneReady(requiredPlayers))
+            && ConnectionContainer.Instance.IsEveryoneReady(ConnectionContainer.Instance.RequiredPlayerCount))
         {
             currentState = GameState.Countdown;
             LoadNextScene();

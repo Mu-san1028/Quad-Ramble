@@ -2,9 +2,16 @@ using UnityEngine;
 using Unity.Netcode;
 using UnityEngine.SceneManagement;
 using System.Collections;
+using System.Collections.Generic;
 
 public class GameManager : MonoBehaviour
 {
+    public enum StageSelectionMode
+    {
+        Fixed,
+        Random
+    }
+
     public GameState currentState = GameState.WaitingForPlayers;
     public static GameManager Instance { get; private set; }
     [SerializeField] public int requiredPlayers = 4;
@@ -12,8 +19,17 @@ public class GameManager : MonoBehaviour
     [SerializeField] private string[] stageNames = new string[] { "RoundA", "RoundB", "RoundC" };
     [SerializeField] private string titleSceneName = "Title";
     [SerializeField] private string resultSceneName = "ResultScene";
+
+    [Header("ステージ選択")]
+    [SerializeField] private StageSelectionMode stageSelectionMode = StageSelectionMode.Fixed;
+    [SerializeField, Min(1)] private int randomStageCount = 3;
+
+    private readonly List<string> selectedStages = new();
+    private bool stagesPrepared;
+
     // 開始済みラウンド数
     public int CurrentRound { get; private set; } = 0;
+
     public void SetState(GameState newState)
     {
         if (!NetworkManager.Singleton.IsServer) return; // サーバーのみがこの処理を行う
@@ -48,30 +64,77 @@ public class GameManager : MonoBehaviour
     }
 
 
-    public void LoadNextScene()
+    private void PrepareStages()
     {
-        if (NetworkManager.Singleton == null) return; 
-        if (!NetworkManager.Singleton.IsServer) return; // サーバーのみがこの処理を行う
+        this.selectedStages.Clear();
+        this.stagesPrepared = true;
 
-        var sceneManager = NetworkManager.Singleton.SceneManager;
-        if (sceneManager == null)
+        if (this.stageNames == null)
+            return;
+
+        if (this.stageSelectionMode == StageSelectionMode.Fixed)
         {
-            Debug.LogError("SceneManager が取得できませんでした。ネットワークが開始されていない可能性があります");
+            this.selectedStages.AddRange(this.stageNames);
             return;
         }
 
+        // 空欄と重複を除き、Inspectorの候補を変更せずに抽選する。
+        var candidates = new List<string>();
+        var uniqueNames = new HashSet<string>();
+
+        foreach (string stageName in this.stageNames)
+        {
+            if (string.IsNullOrWhiteSpace(stageName))
+                continue;
+
+            string sceneName = stageName.Trim();
+
+            if (uniqueNames.Add(sceneName))
+                candidates.Add(sceneName);
+        }
+
+        // Fisher–Yatesで並べ替え、先頭から必要数だけ採用する。
+        for (int i = candidates.Count - 1; i > 0; i--)
+        {
+            int randomIndex = Random.Range(0, i + 1);
+            string temporary = candidates[i];
+            candidates[i] = candidates[randomIndex];
+            candidates[randomIndex] = temporary;
+        }
+
+        int requestedCount = Mathf.Max(1, this.randomStageCount);
+        int selectionCount = Mathf.Min(requestedCount, candidates.Count);
+
+        this.selectedStages.AddRange(candidates.GetRange(0, selectionCount));
+
+        if (selectionCount < requestedCount)
+            Debug.LogWarning($"ステージ候補が足りないため、{selectionCount}ステージで進行します。", this);
+    }
+
+
+    public void LoadNextScene()
+    {
+        if (NetworkManager.Singleton == null) return; 
+        if (!NetworkManager.Singleton.IsServer) return;
+
+        var sceneManager = NetworkManager.Singleton.SceneManager;
+        if (sceneManager == null)
+            return;
+
+        // ホストが最初のステージへ進むときに、一度だけ順番を確定する。
+        if (!this.stagesPrepared)
+            this.PrepareStages();
+
         // 読み込めないステージ（Build Settings 未登録・名前違いなど）で
         // 止まらないよう、次のステージへ送る
-        while (CurrentRound < stageNames.Length)
+        while (CurrentRound < this.selectedStages.Count)
         {
-            string nextScene = stageNames[CurrentRound];
+            string nextScene = this.selectedStages[CurrentRound];
             CurrentRound++;
             ConnectionContainer.Instance?.SetCurrentRound(CurrentRound);
 
             var status = sceneManager.LoadScene(nextScene, LoadSceneMode.Single);
             if (status == SceneEventProgressStatus.Started) return;
-
-            Debug.LogError($"ステージ '{nextScene}' を読み込めませんでした ({status})。Build Settings のシーン一覧に登録されているか確認してください");
         }
 
         if (ConnectionContainer.Instance != null)
@@ -79,11 +142,7 @@ public class GameManager : MonoBehaviour
             ConnectionContainer.Instance.BroadcastFinalScores();
         }
         // 全ラウンド終了後、結果画面に遷移
-        var resultStatus = sceneManager.LoadScene(resultSceneName, LoadSceneMode.Single);
-        if (resultStatus != SceneEventProgressStatus.Started)
-        {
-            Debug.LogError($"結果画面 '{resultSceneName}' を読み込めませんでした ({resultStatus})");
-        }
+        sceneManager.LoadScene(resultSceneName, LoadSceneMode.Single);
     }
 
     public int GetPointsForRank(int rank)
@@ -100,6 +159,9 @@ public class GameManager : MonoBehaviour
     {
         CurrentRound = 0;
         currentState = GameState.WaitingForPlayers;
+
+        this.selectedStages.Clear();
+        this.stagesPrepared = false;
     }
 
     public void ReturnToTitle()
@@ -124,6 +186,5 @@ public enum GameState
 {
     WaitingForPlayers,
     Countdown,
-    Playing,
-    GameOver
+    Playing
 }

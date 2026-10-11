@@ -17,7 +17,7 @@ public class PlayerController : NetworkBehaviour
 {
     [SerializeField] private float moveSpeed = 5f; // 基本の移動速度
     [SerializeField] private float acceleration = 20f; // 加速力
-    [SerializeField] private float deceleration = 20f; // ブレーキ力
+    [SerializeField] private float deceleration = 10f; // ブレーキ力
     [SerializeField] private float aimMoveSpeedMultiplier = 0.4f;
 
     private float CurrentMoveSpeed  => (moveSpeed + (status != null ? status.SpeedBonus : 0f)) * (isAiming ? aimMoveSpeedMultiplier : 1f);
@@ -39,7 +39,7 @@ public class PlayerController : NetworkBehaviour
     [SerializeField] private WeaponEffects effects;
     private Vector2 moveInput;
 
-    [SerializeField] private float turnSmoothTime = 1.0f; // キャラクターが振り向くまでの時間
+    [SerializeField] private float turnSmoothTime = 5.0f; // キャラクターが振り向くまでの時間
     [SerializeField] private float turnSmoothVelocity; 
 
     [SerializeField] private float gravity = -9.8f;

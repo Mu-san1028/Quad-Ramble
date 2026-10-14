@@ -36,6 +36,7 @@ public class RoundAudio : MonoBehaviour
     private AudioClip current;
     private float fade = 1f;      // active の比率。1 で切り替え完了
     private float duck = 1f;      // 幕による全体の絞り
+    private bool bgmEnabled;
 
     private void Awake()
     {
@@ -48,9 +49,34 @@ public class RoundAudio : MonoBehaviour
         Instance = this;
         DontDestroyOnLoad(this.gameObject);
 
+        // 席番号とは独立して、会場でBGMを鳴らすプロセスを指定する。
+        this.bgmEnabled = ReadBgmEnabled();
+
         this.active = this.CreateSource();
         this.idle = this.CreateSource();
     }
+
+
+    private static bool ReadBgmEnabled()
+    {
+        string[] args = System.Environment.GetCommandLineArgs();
+
+        for (int i = 0; i < args.Length - 1; i++)
+        {
+            if (!string.Equals(args[i], "-bgm", System.StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (string.Equals(args[i + 1], "off", System.StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (string.Equals(args[i + 1], "on", System.StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        // 通常起動やEditorでは、既存の再生動作を維持する。
+        return true;
+    }
+
 
     private AudioSource CreateSource()
     {
@@ -68,6 +94,9 @@ public class RoundAudio : MonoBehaviour
 
     private void Update()
     {
+        if (!this.bgmEnabled)
+            return;
+
         this.Switch(this.Desired());
         this.Advance();
     }

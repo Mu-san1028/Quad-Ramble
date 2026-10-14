@@ -51,11 +51,23 @@ public class PlayerAnimator : MonoBehaviour
         this.previousPosition = transform.position;
         this.direction = Vector2.zero;
         this.state = 0f;
+
+        if (this.animator != null && this.player != null && this.player.IsTitleMode)
+        {
+            this.ApplyTitleIdle();
+        }
     }
 
     private void Update()
     {
         if (this.animator == null) return;
+
+        if (this.player != null && this.player.IsTitleMode)
+        {
+            this.ApplyTitleIdle();
+            return;
+        }
+
         float dt = Time.deltaTime;
         if (dt <= 0f) return;
 
@@ -97,5 +109,19 @@ public class PlayerAnimator : MonoBehaviour
             : (this.controller != null && this.controller.isGrounded);
 
         this.animator.SetBool(IsJumpId, !grounded);
+    }
+
+    /// <summary>Title中は移動量や接地判定によらず、地上の待機モーションにする。</summary>
+    private void ApplyTitleIdle()
+    {
+        // 台への配置を移動とみなさず、通常操作へ戻るときも古い位置を持ち越さない。
+        this.previousPosition = transform.position;
+        this.direction = Vector2.zero;
+        this.state = 0f;
+
+        this.animator.SetFloat(HorId, 0f);
+        this.animator.SetFloat(VertId, 0f);
+        this.animator.SetFloat(StateId, 0f);
+        this.animator.SetBool(IsJumpId, false);
     }
 }

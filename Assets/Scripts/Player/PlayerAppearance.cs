@@ -16,10 +16,34 @@ public class PlayerAppearance : NetworkBehaviour
 
     private GameObject currentModel;
     private int appliedIndex = -1;
+    private Quaternion initialModelRootRotation = Quaternion.identity;
 
     private void Awake()
     {
         if (this.playerAnimator == null) this.playerAnimator = GetComponentInParent<PlayerAnimator>();
+
+        if (this.modelRoot != null)
+        {
+            this.initialModelRootRotation = this.modelRoot.localRotation;
+        }
+    }
+
+    /// <summary>Titleの表示用に、プレイヤー本体を動かさずモデルだけを回転する。</summary>
+    public void RotateTitleModel(float degrees)
+    {
+        if (this.modelRoot == null)
+            return;
+
+        this.modelRoot.Rotate(0f, degrees, 0f, Space.Self);
+    }
+
+    /// <summary>キャラ変更時やTitle終了時に、モデルの向きを初期状態へ戻す。</summary>
+    public void ResetTitleModelRotation()
+    {
+        if (this.modelRoot == null)
+            return;
+
+        this.modelRoot.localRotation = this.initialModelRootRotation;
     }
 
     public override void OnNetworkSpawn()
@@ -79,6 +103,8 @@ public class PlayerAppearance : NetworkBehaviour
         }
 
         this.currentModel.transform.SetLocalPositionAndRotation(Vector3.zero, Quaternion.identity);
+
+        this.ResetTitleModelRotation();
 
         this.appliedIndex = index;
     }

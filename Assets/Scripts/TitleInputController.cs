@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.UI;
@@ -9,8 +10,16 @@ public class TitleInputController : MonoBehaviour
     [SerializeField] private CharacterSelectUI characterSelect;
     [SerializeField] private InputSystemUIInputModule uiInputModule;
 
+    [Header("キャラの回転")]
+    [SerializeField] private TitlePlayerPresentation playerPresentation;
+    [SerializeField, Min(0f)] private float rotationSpeed = 120f;
+    [SerializeField, Range(0f, 0.95f)] private float rotationDeadzone = 0.15f;
+
     private PlayerInput playerInput;
     private Gamepad pairedPad;
+
+    private InputAction navigationAction;
+    private readonly Dictionary<int, InputBinding> navigationOverrides = new();
 
     private bool titleInputEnabled;
     private bool characterInputEnabled;
@@ -88,6 +97,11 @@ public class TitleInputController : MonoBehaviour
 
         if (!this.characterInputEnabled)
             this.TryEnableCharacterInput();
+
+        if (this.characterInputEnabled && this.characterSelect.IsInputReady)
+        {
+            this.UpdateCharacterRotation();
+        }
     }
 
 
@@ -165,11 +179,75 @@ public class TitleInputController : MonoBehaviour
 
         this.StopInput();
 
+        this.RestrictNavigationToDpad();
         this.playerInput.SwitchCurrentActionMap("UI");
         this.uiInputModule.enabled = true;
 
         this.characterInputEnabled = true;
         this.characterSelect.SelectFirstAvailable();
+    }
+
+
+    private void UpdateCharacterRotation()
+    {
+        if (this.playerPresentation == null)
+            return;
+
+        float horizontal = this.pairedPad.rightStick.ReadValue().x;
+        float strength = Mathf.InverseLerp(this.rotationDeadzone, 1f, Mathf.Abs(horizontal));
+
+        if (strength <= 0f)
+            return;
+
+        float degrees = Mathf.Sign(horizontal) * strength
+            * this.rotationSpeed * Time.unscaledDeltaTime;
+
+        this.playerPresentation.RotateLocalModel(degrees);
+    }
+
+
+    private void RestrictNavigationToDpad()
+    {
+        // PlayerInputが使う実行時のActionだけを変更し、共有アセットは編集しない。
+        this.navigationAction = this.playerInput.actions.FindAction("UI/Navigate", true);
+
+        for (int i = 0; i < this.navigationAction.bindings.Count; i++)
+        {
+            InputBinding binding = this.navigationAction.bindings[i];
+            string path = binding.path;
+
+            if (string.IsNullOrEmpty(path)
+                || !path.StartsWith("<Gamepad>/", System.StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            bool isStick =
+                path.IndexOf("/leftStick", System.StringComparison.OrdinalIgnoreCase) >= 0
+                || path.IndexOf("/rightStick", System.StringComparison.OrdinalIgnoreCase) >= 0;
+
+            if (!isStick)
+                continue;
+
+            this.navigationOverrides.Add(i, binding);
+            this.navigationAction.ApplyBindingOverride(i, new InputBinding { overridePath = "" });
+        }
+    }
+
+
+    private void RestoreNavigationBindings()
+    {
+        if (this.navigationAction == null)
+            return;
+
+        foreach (var entry in this.navigationOverrides)
+        {
+            this.navigationAction.RemoveBindingOverride(entry.Key);
+            this.navigationAction.ApplyBindingOverride(entry.Key, entry.Value);
+        }
+
+        this.navigationOverrides.Clear();
+        this.navigationAction = null;
     }
 
 
@@ -183,7 +261,8 @@ public class TitleInputController : MonoBehaviour
             this.pairedPad.buttonSouth.isPressed
             || this.pairedPad.buttonEast.isPressed
             || this.pairedPad.dpad.ReadValue() != Vector2.zero
-            || this.pairedPad.leftStick.ReadValue().sqrMagnitude > 0.04f;
+            || this.pairedPad.leftStick.ReadValue().sqrMagnitude > 0.04f
+            || this.pairedPad.rightStick.ReadValue().sqrMagnitude > 0.04f;
 
         if (held)
             return false;
@@ -200,6 +279,7 @@ public class TitleInputController : MonoBehaviour
 
         this.uiInputModule.enabled = false;
         this.playerInput.actions.Disable();
+        this.RestoreNavigationBindings();
     }
 
 

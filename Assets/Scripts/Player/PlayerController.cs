@@ -52,7 +52,14 @@ public class PlayerController : NetworkBehaviour
     private PlayerStatus status;
 
     private bool isEliminated = false;
-    public bool IsControllable => (IsOwner || this.allowOfflineControl) && !isEliminated;
+
+    public bool IsTitleMode { get; private set; }
+
+    public bool IsControllable =>
+        (this.IsOwner || this.allowOfflineControl)
+        && !this.isEliminated
+        && !this.IsTitleMode;
+
     private readonly RaycastHit[] aimHits = new RaycastHit[8];
 
     // 攻撃側の強化倍率。status がまだ無いフレームでは 1 倍として扱う
@@ -123,11 +130,60 @@ public class PlayerController : NetworkBehaviour
         PlayerManager.Instance.AddPlayer(this);
         PlayerInput input = GetComponent<PlayerInput>();
 
-        input.enabled = IsOwner;
-        if (IsOwner) PairInputDevice(input);
+        input.enabled = this.IsOwner && !this.IsTitleMode;
+
+        if (input.enabled)
+        {
+            this.PairInputDevice(input);
+        }
 
         // 照準の表示は自分の画面にだけ出す
         if (!IsOwner) preview.Hide();
+    }
+
+    /// <summary>Title中のゲーム操作と移動を停止し、切り替え時の入力・速度をリセットする。</summary>
+    public void SetTitleMode(bool enabled)
+    {
+        if (this.IsTitleMode == enabled)
+            return;
+
+        this.IsTitleMode = enabled;
+
+        PlayerInput input = GetComponent<PlayerInput>();
+
+        bool canUseInput =
+            this.IsOwner
+            || (!this.IsSpawned && this.allowOfflineControl);
+
+        input.enabled = !enabled && canUseInput;
+
+        if (input.enabled)
+        {
+            this.PairInputDevice(input);
+        }
+
+        // 入力停止前の操作や、移動の勢いを持ち越さない。
+        this.moveInput = Vector2.zero;
+        this.lookInput = Vector2.zero;
+        this.velocity = Vector3.zero;
+        this.impact = Vector3.zero;
+        this.turnSmoothVelocity = 0f;
+        this.isAiming = false;
+
+        // 通常操作へ戻ったとき、古い照準方向へ振り向かないようにする。
+        this.aimYaw = transform.eulerAngles.y;
+        this.aimPitch = 0f;
+
+        if (this.windupRoutine != null)
+        {
+            StopCoroutine(this.windupRoutine);
+            this.windupRoutine = null;
+        }
+
+        if (this.preview != null)
+        {
+            this.preview.Hide();
+        }
     }
 
     public override void OnNetworkDespawn()
@@ -278,6 +334,9 @@ public class PlayerController : NetworkBehaviour
     #region 入力イベント
     void OnJump(InputValue value)
     {
+        if (this.IsTitleMode)
+            return;
+
         // ボタンが押されたら
         if (value.isPressed)
         {
@@ -299,21 +358,33 @@ public class PlayerController : NetworkBehaviour
 
     void OnMove(InputValue value)
     {
+        if (this.IsTitleMode)
+            return;
+
         moveInput = value.Get<Vector2>();
     }
 
     void OnAim(InputValue value)
     {
+        if (this.IsTitleMode)
+            return;
+
         isAiming = value.isPressed;
     }
 
     void OnLook(InputValue value)
     {
+        if (this.IsTitleMode)
+            return;
+
         lookInput = value.Get<Vector2>();
     }
 
     void OnNextWeapon(InputValue value)
     {
+        if (this.IsTitleMode)
+            return;
+
         if (value.isPressed)
         {
             this.playerItem.SwitchWeapon(1);
@@ -322,6 +393,9 @@ public class PlayerController : NetworkBehaviour
 
     void OnPreviousWeapon(InputValue value)
     {
+        if (this.IsTitleMode)
+            return;
+
         if (value.isPressed)
         {
             this.playerItem.SwitchWeapon(-1);
@@ -367,6 +441,9 @@ public class PlayerController : NetworkBehaviour
     // 外部のギミックによる速度変化
     public void VelocityChange(Vector3 externalAcceleration)
     {
+        if (this.IsTitleMode)
+            return;
+
         velocity += externalAcceleration;
     }
 
@@ -379,6 +456,9 @@ public class PlayerController : NetworkBehaviour
 
     void Update()
     {
+        if (this.IsTitleMode)
+            return;
+
         this.UpdateAimInput();
         cameraRig.UpdateAim(isAiming, aimPitch);
         this.UpdateTrajectoryPreview();
@@ -387,6 +467,7 @@ public class PlayerController : NetworkBehaviour
         {
             this.UpdateMovement();
         }
+
         // 体の回転より後に適用する。親の回転を継承させないため
         this.ApplyAimPivot();
     }

@@ -124,7 +124,7 @@ public class CharacterSelectUI : MonoBehaviour
         }
 
         if (this.readyButton != null) this.readyButton.interactable = me.CharacterIndex >= 0;
-        if (this.readyLabel != null) this.readyLabel.text = me.IsReady ? "決定済み" : "決定";
+        if (this.readyLabel != null) this.readyLabel.text = me.IsReady ? "選択済み" : "決める！";
     }
 
     private void ToggleReady()

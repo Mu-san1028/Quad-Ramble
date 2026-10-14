@@ -128,14 +128,14 @@ public class QuizManager_Key : NetworkBehaviour
 
     #region デバッグ・RPC要求処理
 
-    [ServerRpc(RequireOwnership = false)]
+    [Rpc(SendTo.Server, InvokePermission =RpcInvokePermission.Everyone)]
     private void RequestStartQuizServerRpc(Difficulty difficulty)
     {
         // デバッグ用（思考時間は仮で10秒設定）
         StartQuiz(difficulty, 10.0f);
     }
 
-    [ServerRpc(RequireOwnership = false)]
+    [Rpc(SendTo.Server, InvokePermission =RpcInvokePermission.Everyone)]
     private void ExecuteAnswerCheckServerRpc(bool isFinalQuestion)
     {
         ExecuteAnswerCheck(isFinalQuestion);

@@ -28,7 +28,7 @@ public class WeaponEffects
     }
 
     /// <summary>弾が飛ぶ見た目。コルーチンの起動は呼び出し側に任せる</summary>
-    public IEnumerator Projectile(GameObject prefab, Vector3 start, Vector3 vel, float duration, float gravity)
+    public IEnumerator Projectile(GameObject prefab, Vector3 start, Vector3 vel, float duration, float gravity, Vector3 landing, bool faceFlightDirection)
     {
         Quaternion initialRotation = (vel.sqrMagnitude > 0.0001f) ? Quaternion.LookRotation(vel) : Quaternion.identity;
         var obj = Object.Instantiate(prefab, start, initialRotation);
@@ -37,12 +37,36 @@ public class WeaponEffects
         while (elapsed < duration)
         {
             if (obj == null) yield break;
-            elapsed += Time.deltaTime;
+            elapsed = Mathf.Min(elapsed + Time.deltaTime, duration);
             Vector3 pos = start + vel * elapsed;
             pos.y -= 0.5f * gravity * elapsed * elapsed;
             obj.transform.position = pos;
+
+            if (faceFlightDirection)
+            {
+                Vector3 currentVelocity = vel + Vector3.down * gravity * elapsed;
+
+                if (currentVelocity.sqrMagnitude > 0.0001f)
+                {
+                    obj.transform.rotation = Quaternion.LookRotation(currentVelocity);
+                }
+            }
+
             yield return null;
         }
-        Object.Destroy(obj);
+
+        if (obj == null) yield break;
+
+        // 衝突の有無にかかわらず、サーバーの爆発判定と同じ位置で演出する。
+        obj.transform.position = landing;
+
+        if (obj.TryGetComponent<BombPushBomb>(out var bomb))
+        {
+            bomb.Explode();
+        }
+        else
+        {
+            Object.Destroy(obj);
+        }
     }
 }

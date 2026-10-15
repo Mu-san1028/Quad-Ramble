@@ -3,11 +3,20 @@ using UnityEngine;
 public class BombPushBomb : MonoBehaviour
 {
     [SerializeField] private GameObject explosionEffectPrefab; // 爆発エフェクトのプレハブ
+
+    private bool hasExploded;
+
     public void Explode()
     {
-        // 爆発の処理をここに実装
-        Debug.Log("Bomb exploded!");
-        Instantiate(explosionEffectPrefab, transform.position, Quaternion.identity);
+        if (hasExploded) return;
+
+        hasExploded = true;
+
+        if (explosionEffectPrefab != null)
+        {
+            Instantiate(explosionEffectPrefab, transform.position, Quaternion.identity);
+        }
+
         Destroy(gameObject);
     }
 }

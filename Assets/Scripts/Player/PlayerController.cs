@@ -735,12 +735,9 @@ public class PlayerController : NetworkBehaviour
         float gravity = wd?.gravityScale ?? 9.8f;
 
         Vector3 landing = TrajectorySimulator.Simulate(startPos, initialVelocity, gravity,
-                                                       TrajectorySettings, out float flightTime, out bool hitSomething);
+                                                       TrajectorySettings, out float flightTime, out _);
 
-        ShowProjectileClientRpc(startPos, initialVelocity, flightTime, gravity, weaponKey);
-
-        // 何にも当たらなかった弾は、空中で爆発せずにそのまま消滅する
-        if (!hitSomething) return;
+        ShowProjectileClientRpc(startPos, initialVelocity, flightTime, gravity, weaponKey, landing);
 
         Debug.Log($"[Throw] landing: {landing}, flightTime: {flightTime}, power: {power}, blastRadius: {blastRadius}");
         StartCoroutine(ExplodeAfterDelay(landing, flightTime, blastRadius, power));
@@ -776,11 +773,13 @@ public class PlayerController : NetworkBehaviour
     }
 
     [Rpc(SendTo.ClientsAndHost)]
-    void ShowProjectileClientRpc(Vector3 startPos, Vector3 initialVelocity, float flightTime, float gravity, Items weaponKey)
+    void ShowProjectileClientRpc(Vector3 startPos, Vector3 initialVelocity, float flightTime, float gravity, Items weaponKey, Vector3 landing)
     {
         var wd = ItemDatabase.Instance.GetItem(weaponKey) as WeaponData;
         if (wd?.bulletPrefab == null) return;
-        StartCoroutine(effects.Projectile(wd.bulletPrefab, startPos, initialVelocity, flightTime, gravity));
+        StartCoroutine(effects.Projectile(
+            wd.bulletPrefab, startPos, initialVelocity,
+            flightTime, gravity, landing, wd.faceFlightDirection));
     }
 
     private IEnumerator ExplodeAfterDelay(Vector3 center, float delay, float radius, float power)

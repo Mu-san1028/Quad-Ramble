@@ -454,6 +454,14 @@ public class PlayerController : NetworkBehaviour
         velocity.y = Mathf.Max(velocity.y, upwardSpeed);
     }
 
+    /// <summary>加速台の押し出しを加える。衝撃は移動処理で自然に減衰する。</summary>
+    public void Boost(Vector3 boostVelocity)
+    {
+        if (!this.IsControllable) return;
+
+        impact += boostVelocity;
+    }
+
     void Update()
     {
         if (this.IsTitleMode)

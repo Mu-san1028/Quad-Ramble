@@ -44,7 +44,6 @@ public class BuffNotificationUI : MonoBehaviour
     {
         if (!this.bindingsValid)
             return;
-
         PlayerStatus status = PlayerStatus.Local;
 
         if (status == null || !status.IsSpawned)

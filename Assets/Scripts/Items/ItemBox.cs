@@ -37,7 +37,8 @@ public class ItemBox : NetworkBehaviour
         if (!this.isAvailable.Value) return;
         if (!other.TryGetComponent(out PlayerItem playerItem)) return;
 
-        playerItem.ApplyItem(this.RollItem());
+        if (!playerItem.TryApplyItemServer(this.RollItem())) return;
+
         this.isAvailable.Value = false;
         StartCoroutine(this.RespawnRoutine());
     }

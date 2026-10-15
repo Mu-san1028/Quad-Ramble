@@ -11,6 +11,7 @@ public enum Items
 
     // Weapons
     Bomb,
+    GoldenBomb,
     Gun,
     Thorn,
     Spear,

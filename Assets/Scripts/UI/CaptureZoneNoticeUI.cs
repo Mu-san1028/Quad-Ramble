@@ -3,10 +3,12 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
-/// <summary>予告文と5秒間の矢印。画面外の方向誘導や距離表示は行わない。</summary>
+/// <summary>予告を共通通知UIへ送り、エリアの矢印・倍率を表示する。</summary>
 public sealed class CaptureZoneNoticeUI : MonoBehaviour
 {
     [SerializeField] private Camera targetCamera;
+    [Tooltip("未設定なら同じシーンのRoundEventUIを自動取得")]
+    [SerializeField] private RoundEventUI roundEventUI;
     [Tooltip("日本語を含むFont Asset。未設定なら既存タイマーのフォントを使用")]
     [SerializeField] private TMP_FontAsset font;
     [SerializeField, Min(0f)] private float markerHeight = 2f;
@@ -22,7 +24,9 @@ public sealed class CaptureZoneNoticeUI : MonoBehaviour
     private CaptureZoneDirector director;
     private Canvas canvas;
     private RectTransform canvasRect;
-    private TextMeshProUGUI notice;
+    private string lastAnnouncement;
+    private double lastAnnouncementPhase = double.NaN;
+    private bool wasRunning;
     private readonly List<Marker> markers = new();
 
     private void Start()
@@ -30,6 +34,21 @@ public sealed class CaptureZoneNoticeUI : MonoBehaviour
         director = GetComponent<CaptureZoneDirector>();
         if (!director || (Application.isBatchMode && director.NetworkManager && !director.NetworkManager.IsClient))
             return;
+
+        if (!roundEventUI)
+        {
+            foreach (RoundEventUI candidate in FindObjectsByType<RoundEventUI>(FindObjectsSortMode.None))
+            {
+                if (candidate.gameObject.scene == gameObject.scene)
+                {
+                    roundEventUI = candidate;
+                    break;
+                }
+            }
+        }
+
+        if (!roundEventUI)
+            Debug.LogWarning("CaptureZoneNoticeUI: 同じシーンにRoundEventUIを配置してください。エリア変更の予告を表示できません。", this);
 
         if (!font)
         {
@@ -48,10 +67,6 @@ public sealed class CaptureZoneNoticeUI : MonoBehaviour
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         scaler.referenceResolution = new Vector2(1920, 1080);
         scaler.matchWidthOrHeight = .5f;
-
-        notice = MakeText("Announcement", canvasRect, 30);
-        notice.rectTransform.anchorMin = notice.rectTransform.anchorMax = new Vector2(.5f, .82f);
-        notice.rectTransform.sizeDelta = new Vector2(1000, 70);
 
         foreach (CaptureZone zone in director.Zones)
         {
@@ -75,7 +90,6 @@ public sealed class CaptureZoneNoticeUI : MonoBehaviour
             markerRoot.gameObject.SetActive(false);
         }
 
-        notice.gameObject.SetActive(false);
     }
 
     private void LateUpdate()
@@ -86,11 +100,25 @@ public sealed class CaptureZoneNoticeUI : MonoBehaviour
         bool running = director && director.IsRunning;
         canvas.enabled = running;
         if (!running)
+        {
+            ResetAnnouncements();
             return;
+        }
+
+        wasRunning = true;
 
         string announcement = director.PendingAnnouncement();
-        notice.gameObject.SetActive(!string.IsNullOrEmpty(announcement));
-        notice.text = announcement ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(announcement))
+        {
+            lastAnnouncement = null;
+        }
+        else if (roundEventUI && roundEventUI.isActiveAndEnabled &&
+            (announcement != lastAnnouncement || director.ChangedAt != lastAnnouncementPhase))
+        {
+            roundEventUI.AddNotice(announcement, NoticeType.Territory);
+            lastAnnouncement = announcement;
+            lastAnnouncementPhase = director.ChangedAt;
+        }
 
         if (!targetCamera || !targetCamera.isActiveAndEnabled)
             targetCamera = Camera.main;
@@ -153,8 +181,21 @@ public sealed class CaptureZoneNoticeUI : MonoBehaviour
 
     private void OnDisable()
     {
+        ResetAnnouncements();
+
         if (canvas)
             canvas.enabled = false;
+    }
+
+    private void ResetAnnouncements()
+    {
+        // 終了時だけクリアし、開始前のUI動作確認は妨げない。
+        if (wasRunning && roundEventUI)
+            roundEventUI.ClearNotices();
+
+        wasRunning = false;
+        lastAnnouncement = null;
+        lastAnnouncementPhase = double.NaN;
     }
 
     private void OnDestroy()

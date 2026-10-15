@@ -84,7 +84,8 @@ public class BreakableBlock : NetworkBehaviour
         if (this.state.Value != BlockState.Dropped) return;
         if (!other.TryGetComponent(out PlayerItem playerItem)) return;
 
-        playerItem.ApplyItem(this.droppedItem.Value);
+        if (!playerItem.TryApplyItemServer(this.droppedItem.Value)) return;
+
         this.state.Value = BlockState.Consumed;
     }
 

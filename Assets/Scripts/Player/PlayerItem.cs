@@ -9,6 +9,7 @@ using Unity.Netcode;
 public class PlayerItem : NetworkBehaviour
 {
     public static PlayerItem Local { get; private set; }
+    public static event System.Action<string, NoticeType> LocalItemNotice;
     [field: SerializeField] public ItemSlot[] Weapons { get; private set; } = new ItemSlot[3];
     private int currentWeaponIndex; // 現在装備している武器
     private PlayerController playerController;
@@ -47,20 +48,47 @@ public class PlayerItem : NetworkBehaviour
 
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     private void ApplyItemServerRpc(Items item) {
-        this.ApplyItemClientRpc(item);
+        TryApplyItemServer(item);
+    }
+
+    /// <summary>サーバーで取得可否を判定する。満杯の武器は取得しない。</summary>
+    public bool TryApplyItemServer(Items item)
+    {
+        if (!IsServer || ItemDatabase.Instance == null) return false;
+
+        ItemBase data = ItemDatabase.Instance.GetItem(item);
+        if (data == null) return false;
+
+        if (data is WeaponData weapon)
+        {
+            int slot = FindEmptyWeaponSlot();
+            if (slot < 0) return false;
+
+            ApplyWeapon(weapon, slot);
+            ReceiveWeaponClientRpc(item, slot);
+        }
+        else
+        {
+            ApplyItemData(data);
+        }
+
+        return true;
     }
 
     [Rpc(SendTo.ClientsAndHost)]
-    private void ApplyItemClientRpc(Items item)
+    private void ReceiveWeaponClientRpc(Items item, int slot)
     {
-        ItemBase data = ItemDatabase.Instance.GetItem(item);
+        if (IsServer) return;
+
+        if (ItemDatabase.Instance.GetItem(item) is WeaponData weapon)
+            ApplyWeapon(weapon, slot);
+    }
+
+    private void ApplyItemData(ItemBase data)
+    {
         if (data is ConsumableItemData consumableItem)
         {
             this.ApplyConsumableItem(consumableItem);
-        }
-        else if (data is WeaponData weapon)
-        {
-            this.ApplyWeapon(weapon);
         }
         else if (data is PermanentUpgrade upgrade)
         {
@@ -75,6 +103,7 @@ public class PlayerItem : NetworkBehaviour
 
         Debug.Log("消費アイテムを取得: " + data.name);
         this.playerStatus.AddTemporary(data);
+        NotifyUpgradeOwnerRpc(GetPickupMessage(data));
     }
 
     private void ApplyPermanentUpgrade(PermanentUpgrade data)
@@ -82,45 +111,51 @@ public class PlayerItem : NetworkBehaviour
         if (!IsServer) return;
         bool applied = this.playerStatus.AddPermanent(data);
         Debug.Log(applied ? $"恒久強化を取得: {data.itemName}" : $"上限のため無効: {data.itemName}");
+
+        if (applied)
+            NotifyUpgradeOwnerRpc(GetPickupMessage(data));
     }
 
+    [Rpc(SendTo.Owner)]
+    private void NotifyUpgradeOwnerRpc(string message)
+    {
+        if (IsOwner)
+            LocalItemNotice?.Invoke(message, NoticeType.Upgrade);
+    }
 
+    private static string GetDisplayName(ItemBase data)
+    {
+        return string.IsNullOrWhiteSpace(data.itemName) ? data.name : data.itemName;
+    }
 
-    private void ApplyWeapon(WeaponData weapon) {
-        Debug.Log("武器を取得: " + weapon.name);
+    private static string GetPickupMessage(ItemBase data)
+    {
+        return string.IsNullOrWhiteSpace(data.pickupMessage)
+            ? $"{GetDisplayName(data)}を拾った"
+            : data.pickupMessage;
+    }
 
-        // 空いているスロットを探す
-        int emptySlotIndex = -1;
+    private int FindEmptyWeaponSlot()
+    {
         for (int i = 0; i < this.Weapons.Length; i++)
         {
             if (this.Weapons[i] == null || this.Weapons[i].itemData == null)
-            {
-                emptySlotIndex = i;
-                break;
-            }
+                return i;
         }
-        if (emptySlotIndex != -1)
-        {
-            // 空き枠に新しい箱を作って武器を入れる
-            this.Weapons[emptySlotIndex] = new ItemSlot(weapon, weapon.bulletStock); 
-            Debug.Log($"スロット {emptySlotIndex + 1} に {weapon.name} を収納した！");
 
-            // はじめて武器を拾った時は自動装備
-            // （CurrentWeapon 自体が無い、または中身が無い場合）
-            if (CurrentWeapon == null || CurrentWeapon.itemData == null) 
-            {
-                EquipWeapon(emptySlotIndex);
-            }
-        }
-        else
-        {
-            // カバンがいっぱいの場合：今の武器と入れ替える
-            Debug.Log($"カバンが満杯！ {CurrentWeapon.itemData.itemName} を捨てて {weapon.name} を装備した！");
-            
-            // TODO: ここで「古い武器(CurrentWeapon)のPrefabを目の前にドロップする処理」を入れる
-            this.Weapons[currentWeaponIndex] = new ItemSlot(weapon, weapon.bulletStock);
-            EquipWeapon(currentWeaponIndex);
-        }
+        return -1;
+    }
+
+    private void ApplyWeapon(WeaponData weapon, int slot)
+    {
+        bool needsEquip = CurrentWeapon == null || CurrentWeapon.itemData == null;
+        this.Weapons[slot] = new ItemSlot(weapon, weapon.bulletStock);
+
+        if (needsEquip)
+            EquipWeapon(slot);
+
+        if (IsOwner)
+            LocalItemNotice?.Invoke(GetPickupMessage(weapon), NoticeType.Weapon);
     }
 
     // 武器切り替えの共通ロジック（direction は 1 または -1 が入る）
@@ -150,8 +185,28 @@ public class PlayerItem : NetworkBehaviour
         Debug.Log($"{slot.itemData.itemName} を使い切ったので捨てた");
         this.Weapons[this.currentWeaponIndex] = null;
 
+        if (IsSpawned && IsOwner)
+            ReleaseWeaponSlotServerRpc(this.currentWeaponIndex);
+
         // 他に武器が残っていれば自動で持ち替える（SwitchWeapon は空スロットを飛ばす）
         this.SwitchWeapon(1);
+    }
+
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Owner)]
+    private void ReleaseWeaponSlotServerRpc(int slot)
+    {
+        if (slot < 0 || slot >= Weapons.Length) return;
+
+        Weapons[slot] = null;
+        ReleaseWeaponSlotClientRpc(slot);
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void ReleaseWeaponSlotClientRpc(int slot)
+    {
+        if (IsServer || IsOwner || slot < 0 || slot >= Weapons.Length) return;
+
+        Weapons[slot] = null;
     }
 
     private void EquipWeapon(int index)

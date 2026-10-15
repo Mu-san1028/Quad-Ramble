@@ -32,6 +32,10 @@ public class WeaponData : ItemBase
     public bool FliesStraight => this.gravityScale <= 0f;
     public float launchAngle = 45f;
 
+    [Header("飛行中の見た目")]
+    [Tooltip("弾のローカル＋Z方向を、飛行中の進行方向へ向けます。")]
+    public bool faceFlightDirection;
+
     [Header("Deployable：設置するPrefab")]
     public GameObject deployPrefab;
 }

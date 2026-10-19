@@ -14,19 +14,46 @@ public class TimerUI : MonoBehaviour
     public Color criticalColor = Color.red;    // 10秒以下
 
 
+    private void OnEnable()
+    {
+        SetVisible(false);
+    }
+
     void Update()
     {
-        if (RoundManager.Instance == null) return;
+        var round = RoundManager.Instance;
+        bool covering = SceneTransitionUI.Instance != null && SceneTransitionUI.Instance.IsCovering;
+        bool visible = round != null && round.IsSpawned && !round.IsIntro && !covering;
 
-        float currentTime = RoundManager.Instance.RemainingTime;
+        if (!visible)
+        {
+            SetVisible(false);
+            return;
+        }
+
+        float currentTime = round.RemainingTime;
         this.DisplayTime(currentTime);
-        this.UpdateUIColor(currentTime, RoundManager.Instance.RoundDuration);
+        this.UpdateUIColor(currentTime, round.RoundDuration);
+        SetVisible(true);
+    }
+
+    private void SetVisible(bool visible)
+    {
+        // 管理スクリプトは動かしたまま、数字と背景の描画だけを切り替える。
+        if (timerText != null) timerText.enabled = visible;
+        if (timerImage != null) timerImage.enabled = visible;
+    }
+
+    private void OnDisable()
+    {
+        SetVisible(false);
     }
 
     // 時間の表示形式
     void DisplayTime(float timeToDisplay)
     {
-        timerText.text = Mathf.CeilToInt(timeToDisplay).ToString();
+        if (timerText != null)
+            timerText.text = Mathf.CeilToInt(timeToDisplay).ToString();
     }
 
     // 残り時間に合わせて色の変更

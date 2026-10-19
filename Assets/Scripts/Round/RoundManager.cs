@@ -36,7 +36,8 @@ public class RoundManager : NetworkBehaviour
 
     private PlayerSpawner playerSpawner;
     private RoundScoring scoring;
-    private bool isRoundOver = false;
+    private readonly NetworkVariable<bool> isRoundOver = new(false);
+    public bool IsRoundOver => isRoundOver.Value;
     [SerializeField] private float introDuration = 5f;
     private readonly NetworkVariable<float> introRemaining = new ();
     public float IntroRemaining => this.introRemaining.Value;
@@ -83,7 +84,7 @@ public class RoundManager : NetworkBehaviour
 
     void Update()
     {
-        if (!IsServer || this.isRoundOver) return;
+        if (!IsServer || this.IsRoundOver) return;
 
         if (this.introRemaining.Value > 0f)
         {
@@ -122,14 +123,22 @@ public class RoundManager : NetworkBehaviour
     
     public void EndRound()
     {
-        if (this.isRoundOver) return;
+        if (!IsServer || this.IsRoundOver) return;
         StartCoroutine(this.EndRoundRoutine("Finish !"));
     }
 
     // シーン切り替え
     IEnumerator EndRoundRoutine(string message)
     {
-        this.isRoundOver = true;
+        if (!IsServer || this.IsRoundOver) yield break;
+
+        this.isRoundOver.Value = true;
+        foreach (var player in PlayerManager.Instance.AllPlayers)
+        {
+            if (player != null && player.IsSpawned)
+                player.StopOrMovePlayer(false);
+        }
+
         GameManager.Instance.SetState(GameState.Countdown);
         if (this.scoring != null) this.scoring.AwardPoints();
         else this.AwardPoints();

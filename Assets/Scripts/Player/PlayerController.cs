@@ -52,13 +52,16 @@ public class PlayerController : NetworkBehaviour
     private PlayerStatus status;
 
     private bool isEliminated = false;
+    private bool controlsStopped;
 
     public bool IsTitleMode { get; private set; }
 
     public bool IsControllable =>
         (this.IsOwner || this.allowOfflineControl)
         && !this.isEliminated
-        && !this.IsTitleMode;
+        && !this.IsTitleMode
+        && !this.controlsStopped
+        && (RoundManager.Instance == null || !RoundManager.Instance.IsRoundOver);
 
     private readonly RaycastHit[] aimHits = new RaycastHit[8];
 
@@ -258,7 +261,25 @@ public class PlayerController : NetworkBehaviour
     [Rpc(SendTo.ClientsAndHost)]
     private void StopOrMovePlayerClientRpc(bool movable)
     {
-        controller.enabled = movable;
+        controlsStopped = !movable;
+        controller.enabled = movable && !isEliminated;
+
+        if (!movable)
+        {
+            moveInput = Vector2.zero;
+            lookInput = Vector2.zero;
+            velocity = Vector3.zero;
+            impact = Vector3.zero;
+            isAiming = false;
+
+            if (windupRoutine != null)
+            {
+                StopCoroutine(windupRoutine);
+                windupRoutine = null;
+            }
+
+            if (preview != null) preview.Hide();
+        }
     }
 
     /// <summary>復活をクライアントに反映させる</summary>
@@ -334,7 +355,7 @@ public class PlayerController : NetworkBehaviour
     #region 入力イベント
     void OnJump(InputValue value)
     {
-        if (this.IsTitleMode)
+        if (!this.IsControllable)
             return;
 
         // ボタンが押されたら
@@ -358,7 +379,7 @@ public class PlayerController : NetworkBehaviour
 
     void OnMove(InputValue value)
     {
-        if (this.IsTitleMode)
+        if (!this.IsControllable)
             return;
 
         moveInput = value.Get<Vector2>();
@@ -366,7 +387,7 @@ public class PlayerController : NetworkBehaviour
 
     void OnAim(InputValue value)
     {
-        if (this.IsTitleMode)
+        if (!this.IsControllable)
             return;
 
         isAiming = value.isPressed;
@@ -374,7 +395,7 @@ public class PlayerController : NetworkBehaviour
 
     void OnLook(InputValue value)
     {
-        if (this.IsTitleMode)
+        if (!this.IsControllable)
             return;
 
         lookInput = value.Get<Vector2>();
@@ -382,7 +403,7 @@ public class PlayerController : NetworkBehaviour
 
     void OnNextWeapon(InputValue value)
     {
-        if (this.IsTitleMode)
+        if (!this.IsControllable)
             return;
 
         if (value.isPressed)
@@ -393,7 +414,7 @@ public class PlayerController : NetworkBehaviour
 
     void OnPreviousWeapon(InputValue value)
     {
-        if (this.IsTitleMode)
+        if (!this.IsControllable)
             return;
 
         if (value.isPressed)

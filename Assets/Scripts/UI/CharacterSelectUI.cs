@@ -18,6 +18,9 @@ public class CharacterSelectUI : MonoBehaviour
 
     private readonly List<CharacterIconButton> icons = new();
     private int pendingCharacterIndex = -1;
+    private bool hasPreviousSelection;
+    private int previousCharacterIndex;
+    private bool previousReady;
 
     private void Start()
     {
@@ -79,6 +82,9 @@ public class CharacterSelectUI : MonoBehaviour
 
     private void HandleContainerReady(ConnectionContainer container)
     {
+        this.hasPreviousSelection = false;
+        this.pendingCharacterIndex = -1;
+
         container.OnConnectionsChanged -= this.Refresh;
         container.OnConnectionsChanged += this.Refresh;
 
@@ -121,7 +127,24 @@ public class CharacterSelectUI : MonoBehaviour
         Connection me = container.GetConnection(myId);
 
         if (this.panel != null) this.panel.SetActive(me != null);
-        if (me == null) return;
+        if (me == null)
+        {
+            this.hasPreviousSelection = false;
+            return;
+        }
+
+        // 自分の選択がサーバーで受理された後だけ鳴らす。初回同期は鳴らさない。
+        if (this.hasPreviousSelection)
+        {
+            if (me.CharacterIndex != this.previousCharacterIndex && me.CharacterIndex >= 0)
+                SEAudio.Instance?.Play(SEType.CharacterSelect);
+            else if (me.IsReady != this.previousReady)
+                SEAudio.Instance?.Play(me.IsReady ? SEType.Confirm : SEType.Cancel);
+        }
+
+        this.previousCharacterIndex = me.CharacterIndex;
+        this.previousReady = me.IsReady;
+        this.hasPreviousSelection = true;
 
         for (int i = 0; i < this.icons.Count; i++)
         {

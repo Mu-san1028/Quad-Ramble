@@ -108,7 +108,8 @@ public class RoundAudio : MonoBehaviour
         if (round != null)
         {
             // イントロとカウントダウンは静かな層。Start! で本編へ切り替わる
-            bool beforeStart = round.IsIntro || round.CountdownRemaining > 0f;
+            bool beforeStart = round.IsIntro
+                || round.CountdownRemaining > RoundManager.StartDisplayDuration;
             if (beforeStart) return round.IntroBgm != null ? round.IntroBgm : this.defaultIntroBgm;
             return round.MainBgm != null ? round.MainBgm : this.defaultMainBgm;
         }

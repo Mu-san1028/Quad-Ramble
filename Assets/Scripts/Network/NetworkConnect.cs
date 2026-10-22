@@ -115,11 +115,17 @@ public class NetworkConnect : MonoBehaviour
         if (this.State != ConnectionState.Idle)
             return;
 
-        this.SelectedPlayerCount = Mathf.Clamp(
+        int nextCount = Mathf.Clamp(
             this.SelectedPlayerCount + delta,
             1,
             4
         );
+
+        if (nextCount == this.SelectedPlayerCount)
+            return;
+
+        this.SelectedPlayerCount = nextCount;
+        SEAudio.Instance?.Play(SEType.PlayerCountChange);
     }
 
 
@@ -217,8 +223,14 @@ public class NetworkConnect : MonoBehaviour
 
     private void SetState(ConnectionState state)
     {
+        bool connectedNow = this.State != ConnectionState.Connected
+            && state == ConnectionState.Connected;
+
         this.State = state;
         this.RefreshButtons();
+
+        if (connectedNow)
+            SEAudio.Instance?.Play(SEType.RoomConnect);
     }
 
 

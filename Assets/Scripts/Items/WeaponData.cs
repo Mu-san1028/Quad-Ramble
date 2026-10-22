@@ -22,6 +22,11 @@ public class WeaponData : ItemBase
     [Header("Melee：攻撃範囲")]
     public AttackRangeData attackRange;
 
+    [Header("Melee：攻撃演出")]
+    public SwordSwingEffect meleeEffectPrefab;
+    public Vector3 meleeEffectOffset = new Vector3(0f, 1f, 0.5f);
+    public Vector3 meleeEffectRotation;
+
     [Header("Throw：弾のPrefabと投擲設定")]
     public GameObject bulletPrefab;
     public float throwSpeed = 10f;

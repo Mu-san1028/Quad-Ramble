@@ -469,6 +469,8 @@ public class PlayerController : NetworkBehaviour
             return;
         }
 
+        this.BeginMeleeEffect(weaponData);
+
         // 1周期 = 溜め + クールダウン。スロットごとに持つので他の武器を巻き込まない
         if(slot.currentAmount > 0) slot.nextFireTime = Time.time + weaponData.attackWindup + weaponData.reloadTime;
 
@@ -726,6 +728,55 @@ public class PlayerController : NetworkBehaviour
             case WeaponType.Melee:      this.FireMelee(weaponData);      break;
             case WeaponType.Throw:      this.FireThrow(weaponData);      break;
             case WeaponType.Deployable: this.FireDeployable(weaponData); break;
+        }
+    }
+
+    private void BeginMeleeEffect(WeaponData weapon)
+    {
+        if (weapon.weaponType != WeaponType.Melee || weapon.meleeEffectPrefab == null)
+            return;
+
+        // 本人は通信を待たず再生する。空振りでも一度だけ表示する。
+        this.PlayMeleeEffect(weapon);
+
+        if (this.IsSpawned)
+            this.RequestMeleeEffectServerRpc(ItemDatabase.Instance.GetKey(weapon));
+    }
+
+    private void PlayMeleeEffect(WeaponData weapon)
+    {
+        if (weapon.meleeEffectPrefab == null || this.IsTitleMode
+            || (RoundManager.Instance != null && RoundManager.Instance.IsRoundOver))
+            return;
+
+        SwordSwingEffect effect = Instantiate(weapon.meleeEffectPrefab, transform);
+        effect.transform.localPosition = weapon.meleeEffectOffset;
+        effect.transform.localRotation = Quaternion.Euler(weapon.meleeEffectRotation);
+        effect.Play(this, weapon.attackWindup);
+    }
+
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Owner)]
+    private void RequestMeleeEffectServerRpc(Items weaponKey)
+    {
+        var round = RoundManager.Instance;
+        if (round == null || !round.IsSpawned || round.IsIntro || round.IsRoundOver
+            || round.CountdownRemaining > RoundManager.StartDisplayDuration)
+            return;
+
+        this.PlayMeleeEffectClientRpc(weaponKey);
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void PlayMeleeEffectClientRpc(Items weaponKey)
+    {
+        // 所有者は既に再生済み。ホストが所有者の場合も二重再生しない。
+        if (this.IsOwner)
+            return;
+
+        if (ItemDatabase.Instance.GetItem(weaponKey) is WeaponData weapon
+            && weapon.weaponType == WeaponType.Melee)
+        {
+            this.PlayMeleeEffect(weapon);
         }
     }
 

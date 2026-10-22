@@ -13,7 +13,7 @@ using UnityEngine;
 /// インターフェース越しの間接呼び出しの分岐予測が当たりやすく、参照するメモリも近くにまとまる。
 /// シーンに置く必要はない。最初に Register が呼ばれた時点で自動生成される。
 /// </summary>
-[DefaultExecutionOrder(-100)]
+[DefaultExecutionOrder(-300)]
 [AddComponentMenu("")] // Inspector の Add Component には出さない（手で付ける物ではないため）
 public sealed class StageDirector : MonoBehaviour
 {
@@ -86,6 +86,10 @@ public sealed class StageDirector : MonoBehaviour
         }
 
         this.timers.Advance(dt);
+
+        // Transform で動く障害物を、PlayerController(-200)の移動・接地判定より先に反映する。
+        if (UnityEngine.SceneManagement.SceneManager.GetSceneByName("Race").isLoaded)
+            Physics.SyncTransforms();
 
         // 破棄済み Collider を掴んだままにしないための掃除。1 フレームあたり数件だけ見る。
         StageCacheRegistry.SweepAll();

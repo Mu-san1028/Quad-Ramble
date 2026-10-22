@@ -58,7 +58,7 @@ public class TitleInputController : MonoBehaviour
 
         Keyboard keyboard = pad == null && LocalGamepad.Seat == 0 ? Keyboard.current : null;
         Mouse mouse = pad == null && LocalGamepad.Seat == 0 ? Mouse.current : null;
-        bool keyboardAvailable = keyboard != null && keyboard.added && mouse != null && mouse.added;
+        bool keyboardAvailable = keyboard != null && keyboard.added;
         if (!keyboardAvailable)
         {
             keyboard = null;
@@ -88,7 +88,10 @@ public class TitleInputController : MonoBehaviour
             }
             else if (this.useKeyboardMouse)
             {
-                this.playerInput.SwitchCurrentControlScheme("Keyboard&Mouse", keyboard, mouse);
+                if (mouse != null && mouse.added)
+                    this.playerInput.SwitchCurrentControlScheme("Keyboard&Mouse", keyboard, mouse);
+                else
+                    this.playerInput.SwitchCurrentControlScheme("Keyboard&Mouse", keyboard);
                 this.playerInput.actions.Disable();
             }
         }
@@ -175,7 +178,7 @@ public class TitleInputController : MonoBehaviour
     private bool CanAcceptTitleInput()
     {
         return this.titleInputEnabled
-            && this.pairedPad != null
+            && (this.pairedPad != null || this.useKeyboardMouse)
             && this.networkConnect.State
                 == NetworkConnect.ConnectionState.Idle;
     }
@@ -188,8 +191,9 @@ public class TitleInputController : MonoBehaviour
 
         this.StopInput();
 
-        this.playerInput.SwitchCurrentActionMap(this.useKeyboardMouse ? "UI" : "Title");
-        this.uiInputModule.enabled = this.useKeyboardMouse;
+        this.playerInput.SwitchCurrentActionMap("Title");
+        // タイトルの決定キーをUIのSubmitにも流さない。
+        this.uiInputModule.enabled = false;
         this.titleInputEnabled = true;
     }
 
@@ -216,10 +220,15 @@ public class TitleInputController : MonoBehaviour
 
     private void UpdateCharacterRotation()
     {
-        if (this.playerPresentation == null || this.pairedPad == null)
+        if (this.playerPresentation == null)
             return;
 
-        float horizontal = this.pairedPad.rightStick.ReadValue().x;
+        float horizontal = this.pairedPad != null
+            ? this.pairedPad.rightStick.ReadValue().x
+            : (this.pairedKeyboard != null
+                ? (this.pairedKeyboard.lKey.isPressed ? 1f : 0f)
+                    - (this.pairedKeyboard.jKey.isPressed ? 1f : 0f)
+                : 0f);
         float strength = Mathf.InverseLerp(this.rotationDeadzone, 1f, Mathf.Abs(horizontal));
 
         if (strength <= 0f)
@@ -286,10 +295,13 @@ public class TitleInputController : MonoBehaviour
         bool held;
         if (this.useKeyboardMouse)
         {
-            if (this.pairedKeyboard == null || this.pairedMouse == null)
+            if (this.pairedKeyboard == null)
                 return false;
 
-            held = this.pairedMouse.leftButton.isPressed
+            held = (this.pairedMouse != null && this.pairedMouse.leftButton.isPressed)
+                || this.pairedKeyboard.hKey.isPressed
+                || this.pairedKeyboard.leftArrowKey.isPressed
+                || this.pairedKeyboard.rightArrowKey.isPressed
                 || this.pairedKeyboard.enterKey.isPressed
                 || this.pairedKeyboard.numpadEnterKey.isPressed
                 || this.pairedKeyboard.spaceKey.isPressed;

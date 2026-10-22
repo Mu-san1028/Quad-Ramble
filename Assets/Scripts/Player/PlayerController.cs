@@ -225,10 +225,12 @@ public class PlayerController : NetworkBehaviour
 
         if (pad == null || !pad.added)
         {
-            if (LocalGamepad.Seat == 0 && Keyboard.current != null && Keyboard.current.added
-                && Mouse.current != null && Mouse.current.added)
+            if (LocalGamepad.Seat == 0 && Keyboard.current != null && Keyboard.current.added)
             {
-                input.SwitchCurrentControlScheme("Keyboard&Mouse", Keyboard.current, Mouse.current);
+                if (Mouse.current != null && Mouse.current.added)
+                    input.SwitchCurrentControlScheme("Keyboard&Mouse", Keyboard.current, Mouse.current);
+                else
+                    input.SwitchCurrentControlScheme("Keyboard&Mouse", Keyboard.current);
             }
             else
             {

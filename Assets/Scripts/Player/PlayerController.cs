@@ -217,33 +217,28 @@ public class PlayerController : NetworkBehaviour
         cameraRig.Rebind(aimPivot != null ? aimPivot : transform);
     }
 
-    /// <summary>指定パッドを使用し、通常席でパッドがない場合はキーボード・マウスを使用する。</summary>
+    /// <summary>通常席はキーボードと指定パッド、他の席は指定パッドだけを使用する。</summary>
     private void PairInputDevice(PlayerInput input)
     {
         var pad = LocalGamepad.Current;
         input.neverAutoSwitchControlSchemes = true;
 
-        if (pad == null || !pad.added)
+        if (LocalGamepad.Seat == 0 && Keyboard.current != null && Keyboard.current.added)
         {
-            if (LocalGamepad.Seat == 0 && Keyboard.current != null && Keyboard.current.added)
-            {
-                if (Mouse.current != null && Mouse.current.added)
-                    input.SwitchCurrentControlScheme("Keyboard&Mouse", Keyboard.current, Mouse.current);
-                else
-                    input.SwitchCurrentControlScheme("Keyboard&Mouse", Keyboard.current);
-            }
-            else
-            {
-                // 別の席のパッドやキーボードを自動取得させない。
-                input.enabled = false;
-                Debug.LogWarning($"[Input] seat={LocalGamepad.Seat} の入力デバイスが見つかりません", this);
-            }
-
-            return;
+            var devices = new List<InputDevice> { Keyboard.current };
+            if (Mouse.current != null && Mouse.current.added) devices.Add(Mouse.current);
+            if (pad != null && pad.added) devices.Add(pad);
+            input.SwitchCurrentControlScheme("Keyboard&Mouse", devices.ToArray());
         }
-
-        input.neverAutoSwitchControlSchemes = true;   // 他のデバイスに触れても奪われない
-        input.SwitchCurrentControlScheme("Gamepad", pad);
+        else if (pad != null && pad.added)
+        {
+            input.SwitchCurrentControlScheme("Gamepad", pad);
+        }
+        else
+        {
+            input.enabled = false;
+            Debug.LogWarning($"[Input] seat={LocalGamepad.Seat} の入力デバイスが見つかりません", this);
+        }
     }
 
     #region ネットワーク経由での脱落・復活・移動制御

@@ -56,8 +56,8 @@ public class TitleInputController : MonoBehaviour
         if (pad != null && !pad.added)
             pad = null;
 
-        Keyboard keyboard = pad == null && LocalGamepad.Seat == 0 ? Keyboard.current : null;
-        Mouse mouse = pad == null && LocalGamepad.Seat == 0 ? Mouse.current : null;
+        Keyboard keyboard = LocalGamepad.Seat == 0 ? Keyboard.current : null;
+        Mouse mouse = LocalGamepad.Seat == 0 ? Mouse.current : null;
         bool keyboardAvailable = keyboard != null && keyboard.added;
         if (!keyboardAvailable)
         {
@@ -76,24 +76,20 @@ public class TitleInputController : MonoBehaviour
             this.inputInitialized = true;
             this.waitingForRelease = true;
 
-            if (pad != null)
+            if (this.useKeyboardMouse)
             {
-                this.playerInput.SwitchCurrentControlScheme(
-                    "Gamepad",
-                    pad
-                );
+                var devices = new List<InputDevice> { keyboard };
+                if (mouse != null && mouse.added) devices.Add(mouse);
+                if (pad != null) devices.Add(pad);
+                this.playerInput.SwitchCurrentControlScheme("Keyboard&Mouse", devices.ToArray());
+            }
+            else if (pad != null)
+            {
+                this.playerInput.SwitchCurrentControlScheme("Gamepad", pad);
+            }
 
-                // ペアリング後も、入力を許可するまでMapは止める。
-                this.playerInput.actions.Disable();
-            }
-            else if (this.useKeyboardMouse)
-            {
-                if (mouse != null && mouse.added)
-                    this.playerInput.SwitchCurrentControlScheme("Keyboard&Mouse", keyboard, mouse);
-                else
-                    this.playerInput.SwitchCurrentControlScheme("Keyboard&Mouse", keyboard);
-                this.playerInput.actions.Disable();
-            }
+            // ペアリング後も、入力を許可するまでMapは止める。
+            this.playerInput.actions.Disable();
         }
 
         if (this.pairedPad == null && !this.useKeyboardMouse)
@@ -208,8 +204,7 @@ public class TitleInputController : MonoBehaviour
 
         this.StopInput();
 
-        if (!this.useKeyboardMouse)
-            this.RestrictNavigationToDpad();
+        this.RestrictNavigationToDpad();
         this.playerInput.SwitchCurrentActionMap("UI");
         this.uiInputModule.enabled = true;
 
@@ -223,9 +218,9 @@ public class TitleInputController : MonoBehaviour
         if (this.playerPresentation == null)
             return;
 
-        float horizontal = this.pairedPad != null
-            ? this.pairedPad.rightStick.ReadValue().x
-            : (this.pairedKeyboard != null
+        float horizontal = (this.pairedPad != null
+            ? this.pairedPad.rightStick.ReadValue().x : 0f)
+            + (this.pairedKeyboard != null
                 ? (this.pairedKeyboard.lKey.isPressed ? 1f : 0f)
                     - (this.pairedKeyboard.jKey.isPressed ? 1f : 0f)
                 : 0f);
@@ -299,7 +294,13 @@ public class TitleInputController : MonoBehaviour
                 return false;
 
             held = (this.pairedMouse != null && this.pairedMouse.leftButton.isPressed)
-                || this.pairedKeyboard.hKey.isPressed
+                || this.pairedKeyboard.wKey.isPressed
+                || this.pairedKeyboard.aKey.isPressed
+                || this.pairedKeyboard.sKey.isPressed
+                || this.pairedKeyboard.dKey.isPressed
+                || this.pairedKeyboard.upArrowKey.isPressed
+                || this.pairedKeyboard.downArrowKey.isPressed
+                || this.pairedKeyboard.bKey.isPressed
                 || this.pairedKeyboard.leftArrowKey.isPressed
                 || this.pairedKeyboard.rightArrowKey.isPressed
                 || this.pairedKeyboard.enterKey.isPressed
@@ -316,6 +317,13 @@ public class TitleInputController : MonoBehaviour
                 || this.pairedPad.dpad.ReadValue() != Vector2.zero
                 || this.pairedPad.leftStick.ReadValue().sqrMagnitude > 0.04f
                 || this.pairedPad.rightStick.ReadValue().sqrMagnitude > 0.04f;
+        }
+
+        if (this.pairedPad != null)
+        {
+            held |= this.pairedPad.buttonSouth.isPressed
+                || this.pairedPad.buttonEast.isPressed
+                || this.pairedPad.dpad.ReadValue() != Vector2.zero;
         }
 
         if (held)

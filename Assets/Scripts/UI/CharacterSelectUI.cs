@@ -17,6 +17,7 @@ public class CharacterSelectUI : MonoBehaviour
     [SerializeField] private TextMeshProUGUI readyLabel;
 
     private readonly List<CharacterIconButton> icons = new();
+    private int pendingCharacterIndex = -1;
 
     private void Start()
     {
@@ -94,15 +95,21 @@ public class CharacterSelectUI : MonoBehaviour
             int index = i;   // クロージャがループ変数を掴まないように
             CharacterIconButton icon = Instantiate(this.iconPrefab, this.iconParent);
             icon.SetIcon(CharacterDatabase.Instance.Get(index).icon);
-            icon.Button.onClick.AddListener(() => ConnectionContainer.Instance?.SelectCharacterRpc(index));
+            icon.Button.onClick.AddListener(() => this.SelectCharacter(index));
             this.icons.Add(icon);
         }
 
-        // パッド操作用。最初の選択対象を渡さないとスティックでカーソルが動かない
-        if (this.icons.Count > 0 && EventSystem.current != null)
-        {
-            EventSystem.current.SetSelectedGameObject(this.icons[0].gameObject);
-        }
+        // パネルの表示とレイアウト確定後に選択する。
+    }
+
+    private void SelectCharacter(int index)
+    {
+        ConnectionContainer container = ConnectionContainer.Instance;
+        if (container == null) return;
+
+        // RPCの応答で選択が反映されてから、決定ボタンへ移動する。
+        this.pendingCharacterIndex = index;
+        container.SelectCharacterRpc(index);
     }
 
     private void Refresh(int _)
@@ -125,6 +132,109 @@ public class CharacterSelectUI : MonoBehaviour
 
         if (this.readyButton != null) this.readyButton.interactable = me.CharacterIndex >= 0;
         if (this.readyLabel != null) this.readyLabel.text = me.IsReady ? "選択済み" : "決める！";
+
+        this.UpdateNavigation();
+        if (this.pendingCharacterIndex >= 0)
+        {
+            if (me.CharacterIndex == this.pendingCharacterIndex
+                && IsAvailable(this.readyButton) && EventSystem.current != null)
+            {
+                EventSystem.current.SetSelectedGameObject(this.readyButton.gameObject);
+            }
+
+            this.pendingCharacterIndex = -1;
+        }
+        this.EnsureValidSelection();
+    }
+
+    private void LateUpdate()
+    {
+        if (this.IsInputReady)
+            this.EnsureValidSelection();
+    }
+
+    private void EnsureValidSelection()
+    {
+        if (EventSystem.current == null)
+            return;
+
+        GameObject selected = EventSystem.current.currentSelectedGameObject;
+        foreach (CharacterIconButton icon in this.icons)
+        {
+            if (IsAvailable(icon.Button) && selected == icon.Button.gameObject)
+                return;
+        }
+
+        if (IsAvailable(this.readyButton) && selected == this.readyButton.gameObject)
+            return;
+
+        this.SelectFirstAvailable();
+    }
+
+    private static bool IsAvailable(Button button)
+    {
+        return button != null && button.IsActive() && button.IsInteractable();
+    }
+
+    private void UpdateNavigation()
+    {
+        // 非表示中に生成したアイコンも、実際の配置で移動先を決める。
+        Canvas.ForceUpdateCanvases();
+        foreach (CharacterIconButton icon in this.icons)
+        {
+            Button button = icon.Button;
+            if (button == null) continue;
+
+            button.navigation = new Navigation
+            {
+                mode = Navigation.Mode.Explicit,
+                selectOnLeft = this.FindIcon(button, Vector2.left),
+                selectOnRight = this.FindIcon(button, Vector2.right),
+                selectOnUp = this.FindIcon(button, Vector2.up),
+                selectOnDown = this.FindIcon(button, Vector2.down)
+                    ?? (IsAvailable(this.readyButton) ? this.readyButton : null)
+            };
+        }
+
+        if (this.readyButton != null)
+        {
+            this.readyButton.navigation = new Navigation
+            {
+                mode = Navigation.Mode.Explicit,
+                selectOnUp = this.FindIcon(this.readyButton, Vector2.up)
+            };
+        }
+    }
+
+    private Button FindIcon(Button source, Vector2 direction)
+    {
+        Button nearest = null;
+        float bestScore = 0f;
+        RectTransform sourceRect = (RectTransform)source.transform;
+        Vector3 origin = sourceRect.TransformPoint(sourceRect.rect.center);
+        Vector3 worldDirection = source.transform.TransformDirection(direction);
+
+        foreach (CharacterIconButton icon in this.icons)
+        {
+            Button candidate = icon.Button;
+            if (candidate == source || !IsAvailable(candidate)) continue;
+
+            RectTransform rect = (RectTransform)candidate.transform;
+            Vector3 offset = rect.TransformPoint(rect.rect.center) - origin;
+            float forward = Vector3.Dot(worldDirection, offset);
+            if (forward <= 0f) continue;
+            if (source != this.readyButton
+                && (offset - worldDirection * forward).sqrMagnitude > 1f)
+                continue;
+
+            // 同じ行・列の近いアイコンを優先する。
+            float score = forward / offset.sqrMagnitude;
+            if (score <= bestScore) continue;
+            bestScore = score;
+            nearest = candidate;
+        }
+
+        return nearest;
     }
 
     private void ToggleReady()

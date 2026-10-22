@@ -339,6 +339,10 @@ public class PlayerController : NetworkBehaviour
     {
         if (!IsOwner) return;
 
+        // クライアントごとにシーン読み込みとRPCの到着順が違っても、
+        // Title終了処理でスポーン時の照準方向が上書きされないよう先に解除する。
+        this.SetTitleMode(false);
+
         // CharacterControllerが有効なままだと座標の直接代入が打ち消されるので一時的に切る
         controller.enabled = false;
         transform.SetPositionAndRotation(position, rotation);
@@ -350,6 +354,11 @@ public class PlayerController : NetworkBehaviour
         aimYaw = rotation.eulerAngles.y;
         aimPitch = 0f;
         isAiming = false;
+        moveInput = Vector2.zero;
+        lookInput = Vector2.zero;
+        turnSmoothVelocity = 0f;
+        this.ApplyAimPivot();
+        GetComponentInChildren<PlayerAppearance>(true)?.ResetTitleModelRotation();
 
         // 速度もリセット
         velocity = Vector3.zero;

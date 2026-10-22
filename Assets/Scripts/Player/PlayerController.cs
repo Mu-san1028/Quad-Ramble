@@ -58,6 +58,8 @@ public class PlayerController : NetworkBehaviour
 
     private bool isEliminated = false;
     private bool controlsStopped;
+    private Quaternion teleportRotation;
+    private bool pendingStartFacing;
 
     public bool IsTitleMode { get; private set; }
 
@@ -290,6 +292,17 @@ public class PlayerController : NetworkBehaviour
     [Rpc(SendTo.ClientsAndHost)]
     private void StopOrMovePlayerClientRpc(bool movable)
     {
+        // シーン切り替え中はTitleの配置処理がテレポート後に走る場合がある。
+        // 操作開始時に所有者側でスポーン方向と視線をもう一度確定する。
+        if (movable && IsOwner && this.pendingStartFacing)
+        {
+            this.SetTitleMode(false);
+            transform.rotation = this.teleportRotation;
+            this.ResetFacing(this.teleportRotation);
+            this.pendingStartFacing = false;
+            cameraRig.Rebind(aimPivot != null ? aimPivot : transform);
+        }
+
         controlsStopped = !movable;
         controller.enabled = movable && !isEliminated;
 
@@ -337,7 +350,12 @@ public class PlayerController : NetworkBehaviour
     [Rpc(SendTo.ClientsAndHost)]
     private void TeleportClientRpc(Vector3 position, Quaternion rotation)
     {
+        // モデルだけのTitle回転はNetworkTransformでは同期されないため全端末で戻す。
+        GetComponentInChildren<PlayerAppearance>(true)?.ResetTitleModelRotation();
         if (!IsOwner) return;
+
+        this.teleportRotation = rotation;
+        this.pendingStartFacing = true;
 
         // クライアントごとにシーン読み込みとRPCの到着順が違っても、
         // Title終了処理でスポーン時の照準方向が上書きされないよう先に解除する。
@@ -351,14 +369,7 @@ public class PlayerController : NetworkBehaviour
 
         // 照準もスポーン地点の向きに合わせる。
         // これが無いと、体が次のフレームで前ラウンドの aimYaw に向き直ってしまう
-        aimYaw = rotation.eulerAngles.y;
-        aimPitch = 0f;
-        isAiming = false;
-        moveInput = Vector2.zero;
-        lookInput = Vector2.zero;
-        turnSmoothVelocity = 0f;
-        this.ApplyAimPivot();
-        GetComponentInChildren<PlayerAppearance>(true)?.ResetTitleModelRotation();
+        this.ResetFacing(rotation);
 
         // 速度もリセット
         velocity = Vector3.zero;
@@ -371,6 +382,18 @@ public class PlayerController : NetworkBehaviour
             StopCoroutine(this.windupRoutine);
             this.windupRoutine = null;
         }
+    }
+
+    private void ResetFacing(Quaternion rotation)
+    {
+        aimYaw = rotation.eulerAngles.y;
+        aimPitch = 0f;
+        isAiming = false;
+        moveInput = Vector2.zero;
+        lookInput = Vector2.zero;
+        turnSmoothVelocity = 0f;
+        this.ApplyAimPivot();
+        GetComponentInChildren<PlayerAppearance>(true)?.ResetTitleModelRotation();
     }
     #endregion
 

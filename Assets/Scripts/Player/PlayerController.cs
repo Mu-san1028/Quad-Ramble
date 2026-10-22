@@ -25,6 +25,8 @@ public class PlayerController : NetworkBehaviour
     private float CurrentTurnSmoothTime => Mathf.Max(0.02f, turnSmoothTime);
 
     private CharacterController controller;
+    private readonly RaycastHit[] stepGroundHits = new RaycastHit[16];
+    private bool traversingRaceStep;
 
     // 接地の真値。所有者しか Move() を呼ばないので、他人のコピーでは isGrounded が更新されない
     private readonly NetworkVariable<bool> networkGrounded = new(writePerm: NetworkVariableWritePermission.Owner);
@@ -596,25 +598,81 @@ public class PlayerController : NetworkBehaviour
         velocity.y += gravity * Time.deltaTime;
         #endregion
 
-        #region ノックバックの計算
-        // 衝撃が少しでも残っている場合
-        if (impact.magnitude > 0.2f)
+        // 通常移動と衝撃をまとめ、最後の Move だけで接地状態が上書きされないようにする。
+        if (impact.sqrMagnitude <= 0.04f) impact = Vector3.zero;
+        bool followRaceGround = SceneManager.GetSceneByName("Race").isLoaded
+            && controller.isGrounded && velocity.y <= 0f && impact.y <= 0f;
+        traversingRaceStep = followRaceGround;
+        CollisionFlags collisions = controller.Move((velocity + impact) * Time.deltaTime);
+        if (followRaceGround && !controller.isGrounded)
         {
-            // 衝撃の方向へ強制的に移動させる
-            controller.Move(impact * Time.deltaTime);
-            
-            // 時間経過で衝撃を減衰させる（Lerpで滑らかにゼロに近づける。5fの部分で空気抵抗を調整）
-            impact = Vector3.Lerp(impact, Vector3.zero, 5f * Time.deltaTime);
+            collisions |= FollowRaceStepDown();
         }
-        #endregion
+        traversingRaceStep = false;
 
-        controller.Move(velocity * Time.deltaTime);
+        if ((collisions & CollisionFlags.Above) != 0 && velocity.y > 0f)
+        {
+            velocity.y = 0f;
+        }
+
+        impact = Vector3.Lerp(impact, Vector3.zero, 5f * Time.deltaTime);
 
         // 他人のコピーは Move() を呼ばないので、接地の真値をここから配る
         if (IsSpawned && IsOwner && this.networkGrounded.Value != controller.isGrounded)
         {
             this.networkGrounded.Value = controller.isGrounded;
         }
+    }
+
+    /// <summary>歩いて下りられる高さだけ足元へ追従し、段差で接地が途切れるのを防ぐ。</summary>
+    private CollisionFlags FollowRaceStepDown()
+    {
+        Bounds bounds = controller.bounds;
+        float skin = controller.skinWidth * Mathf.Abs(transform.lossyScale.y);
+        float stepHeight = controller.stepOffset * Mathf.Abs(transform.lossyScale.y);
+        float radius = Mathf.Min(bounds.extents.x, bounds.extents.z) * 0.9f;
+        if (radius <= 0f || stepHeight <= 0f) return CollisionFlags.None;
+
+        Vector3 origin = new Vector3(bounds.center.x, bounds.min.y + radius + skin, bounds.center.z);
+        int count = Physics.SphereCastNonAlloc(origin, radius, Vector3.down, stepGroundHits,
+            stepHeight + skin, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+        float nearest = float.PositiveInfinity;
+        float minGroundNormal = Mathf.Cos(controller.slopeLimit * Mathf.Deg2Rad);
+        for (int i = 0; i < count; i++)
+        {
+            RaycastHit hit = stepGroundHits[i];
+            if (hit.collider.transform.IsChildOf(transform)
+                || Physics.GetIgnoreLayerCollision(gameObject.layer, hit.collider.gameObject.layer)
+                || Physics.GetIgnoreCollision(controller, hit.collider)
+                || hit.normal.y < minGroundNormal)
+                continue;
+
+            nearest = Mathf.Min(nearest, hit.distance);
+        }
+
+        // 足場がない場所や大きな落差では、通常どおり重力で落下する。
+        return float.IsPositiveInfinity(nearest)
+            ? CollisionFlags.None
+            : controller.Move(Vector3.down * Mathf.Min(nearest + skin, stepHeight + skin));
+    }
+
+    private void OnControllerColliderHit(ControllerColliderHit hit)
+    {
+        // 接触面へ向かう成分だけを除去する。壁沿いの移動と斜面の上りは維持する。
+        if (hit.normal.y > 0.01f) return;
+        // Move 中は段差の側面にも触れる。乗り越え可能な高さでは水平速度を削らない。
+        if (traversingRaceStep && hit.normal.y >= -0.01f
+            && hit.point.y <= controller.bounds.min.y
+                + (controller.stepOffset + controller.skinWidth) * Mathf.Abs(transform.lossyScale.y))
+            return;
+
+        float velocityIntoSurface = Vector3.Dot(velocity, hit.normal);
+        if (velocityIntoSurface < 0f)
+            velocity -= hit.normal * velocityIntoSurface;
+
+        float impactIntoSurface = Vector3.Dot(impact, hit.normal);
+        if (impactIntoSurface < 0f)
+            impact -= hit.normal * impactIntoSurface;
     }
 
     /// <summary>溜めを待ってから撃つ。attackWindup が 0 より大きい武器だけが通る</summary>

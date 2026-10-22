@@ -27,6 +27,8 @@ public class PlayerController : NetworkBehaviour
 
     private CharacterController controller;
     private readonly RaycastHit[] stepGroundHits = new RaycastHit[16];
+    private readonly RaycastHit[] jumpGroundHits = new RaycastHit[16];
+    private readonly Collider[] raceOverlapHits = new Collider[64];
     private bool traversingRaceStep;
 
     // 接地の真値。所有者しか Move() を呼ばないので、他人のコピーでは isGrounded が更新されない
@@ -389,7 +391,8 @@ public class PlayerController : NetworkBehaviour
         if (value.isPressed)
         {
             // 地面にいればジャンプ
-            if (controller.isGrounded)
+            if (controller != null && controller.enabled && controller.isGrounded
+                && velocity.y <= 0f && impact.y <= 0f && HasWalkableGround())
             {
                 velocity.y = Mathf.Sqrt(CurrentJumpHeight * -2f * gravity);
             }
@@ -487,6 +490,32 @@ public class PlayerController : NetworkBehaviour
         }
     }
     #endregion
+
+    /// <summary>壁への接触を接地と誤認せず、足元の歩ける面だけでジャンプを許可する。</summary>
+    private bool HasWalkableGround()
+    {
+        Bounds bounds = controller.bounds;
+        float skin = controller.skinWidth * Mathf.Abs(transform.lossyScale.y);
+        float radius = Mathf.Min(bounds.extents.x, bounds.extents.z) * 0.9f;
+        if (radius <= 0f) return false;
+
+        Vector3 origin = new Vector3(bounds.center.x, bounds.min.y + radius + skin, bounds.center.z);
+        int count = Physics.SphereCastNonAlloc(origin, radius, Vector3.down, jumpGroundHits,
+            skin * 2f + 0.03f, Physics.AllLayers, QueryTriggerInteraction.Ignore);
+        float minGroundNormal = Mathf.Max(0.01f, Mathf.Cos(controller.slopeLimit * Mathf.Deg2Rad));
+        for (int i = 0; i < count; i++)
+        {
+            RaycastHit hit = jumpGroundHits[i];
+            if (hit.collider == controller || hit.collider.transform.IsChildOf(transform)
+                || Physics.GetIgnoreLayerCollision(gameObject.layer, hit.collider.gameObject.layer)
+                || Physics.GetIgnoreCollision(controller, hit.collider)
+                || hit.normal.y < minGroundNormal)
+                continue;
+
+            return true;
+        }
+        return false;
+    }
 
     // 外部のギミックによる速度変化
     public void VelocityChange(Vector3 externalAcceleration)
@@ -618,15 +647,25 @@ public class PlayerController : NetworkBehaviour
 
         // 通常移動と衝撃をまとめ、最後の Move だけで接地状態が上書きされないようにする。
         if (impact.sqrMagnitude <= 0.04f) impact = Vector3.zero;
-        bool followRaceGround = SceneManager.GetSceneByName("Race").isLoaded
+        bool isRace = SceneManager.GetSceneByName("Race").isLoaded;
+        if (isRace) ResolveRacePenetration();
+        bool followRaceGround = isRace
             && controller.isGrounded && velocity.y <= 0f && impact.y <= 0f;
         traversingRaceStep = followRaceGround;
-        CollisionFlags collisions = controller.Move((velocity + impact) * Time.deltaTime);
+        // ブーストや低FPS時にも、カプセルの半径以内の距離で衝突を検出する。
+        float distance = (velocity + impact).magnitude * Time.deltaTime;
+        float maxStep = Mathf.Max(0.05f, controller.radius
+            * Mathf.Min(Mathf.Abs(transform.lossyScale.x), Mathf.Abs(transform.lossyScale.z)) * 0.5f);
+        int steps = isRace ? Mathf.Clamp(Mathf.CeilToInt(distance / maxStep), 1, 128) : 1;
+        CollisionFlags collisions = CollisionFlags.None;
+        for (int i = 0; i < steps; i++)
+            collisions |= controller.Move((velocity + impact) * (Time.deltaTime / steps));
         if (followRaceGround && !controller.isGrounded)
         {
             collisions |= FollowRaceStepDown();
         }
         traversingRaceStep = false;
+        if (isRace) ResolveRacePenetration();
 
         if ((collisions & CollisionFlags.Above) != 0 && velocity.y > 0f)
         {
@@ -640,6 +679,58 @@ public class PlayerController : NetworkBehaviour
         {
             this.networkGrounded.Value = controller.isGrounded;
         }
+    }
+
+    /// <summary>動く障害物や復帰地点ですでに重なった場合も、実際の形状に沿って押し戻す。</summary>
+    private void ResolveRacePenetration()
+    {
+        // CharacterController が接地維持に使う skinWidth 分の重なりは許容する。
+        float tolerance = Mathf.Max(0.001f, controller.skinWidth * Mathf.Max(
+            Mathf.Abs(transform.lossyScale.x), Mathf.Abs(transform.lossyScale.y),
+            Mathf.Abs(transform.lossyScale.z)));
+        Bounds bounds = controller.bounds;
+        float maxPush = Mathf.Min(bounds.extents.x, bounds.extents.z);
+        int count = Physics.OverlapBoxNonAlloc(bounds.center, bounds.extents + Vector3.one * maxPush,
+            raceOverlapHits, Quaternion.identity, Physics.AllLayers, QueryTriggerInteraction.Ignore);
+
+        // 重なっている全コライダーを同時に満たす位置を探す。1 つずつ Move すると、
+        // 回転物と壁に挟まれたときに押し合いになり、壁の中へ押し込まれてしまう。
+        Vector3 push = Vector3.zero;
+        float remaining = 0f;
+        for (int pass = 0; pass < 6; pass++)
+        {
+            remaining = 0f;
+            for (int i = 0; i < count; i++)
+            {
+                Collider other = raceOverlapHits[i];
+                if (other == controller || other.transform.IsChildOf(transform)
+                    || other is CharacterController
+                    || Physics.GetIgnoreLayerCollision(gameObject.layer, other.gameObject.layer)
+                    || Physics.GetIgnoreCollision(controller, other))
+                    continue;
+
+                if (!Physics.ComputePenetration(controller, transform.position + push, transform.rotation,
+                    other, other.transform.position, other.transform.rotation,
+                    out Vector3 direction, out float depth) || depth <= tolerance)
+                    continue;
+
+                push += direction * (depth + 0.001f);
+                remaining = Mathf.Max(remaining, depth);
+            }
+            if (remaining <= tolerance) break;
+        }
+
+        // 挟まれて横に逃げ場がない場合は、壁を抜けずに上へ押し出す。
+        if (remaining > tolerance)
+        {
+            push.x = 0f;
+            push.z = 0f;
+            push.y = Mathf.Max(push.y, remaining + 0.001f);
+        }
+        if (push.sqrMagnitude <= 0f) return;
+
+        // 押し戻し量は半径までに抑え、壁とは CharacterController の衝突で止める。
+        controller.Move(Vector3.ClampMagnitude(push, maxPush));
     }
 
     /// <summary>歩いて下りられる高さだけ足元へ追従し、段差で接地が途切れるのを防ぐ。</summary>

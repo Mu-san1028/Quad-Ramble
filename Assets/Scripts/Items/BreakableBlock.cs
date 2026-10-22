@@ -12,8 +12,9 @@ public class BreakableBlock : NetworkBehaviour
 {
     [SerializeField] private GameObject blockVisual;   // 壊れる前の見た目
     [SerializeField] private Collider blockCollider;   // 壁としての当たり判定
-    [SerializeField] private GameObject dropVisual;    // 落ちたアイテムのモデルを差し込む場所
-    [SerializeField] private Collider dropTrigger;     // 拾うためのトリガー
+    // 旧Prefabとの互換用。独立アイテムへ移行したため常に無効にする。
+    [SerializeField, HideInInspector] private GameObject dropVisual;
+    [SerializeField, HideInInspector] private Collider dropTrigger;
 
     [SerializeField] private string droppedLayerName = "Default";
     private int intactLayerId;
@@ -22,20 +23,25 @@ public class BreakableBlock : NetworkBehaviour
     [Header("耐久")]
     [SerializeField] private float durability = 15f;
 
-    // 適用順は宣言順。droppedItem → state → damage の順にクライアントへ届く
-    private readonly NetworkVariable<Items> droppedItem = new ();
+    [Header("アイテムの飛び出し")]
+    [SerializeField, Min(0f)] private float dropLaunchSpeed = 3f;
+    [Tooltip("真上からの傾き。横方向は生成するたびにランダムになります。")]
+    [SerializeField, Range(0f, 80f)] private float dropLaunchAngle = 20f;
+
     private readonly NetworkVariable<BlockState> state = new (BlockState.Intact);
     private readonly NetworkVariable<float> damage = new ();
 
     private BlockAnimation blockAnimation;
     private Coroutine hideRoutine;
-    private GameObject dropInstance;   // 差し込んだモデル。状態が変わったら捨てる
+    private Rigidbody blockBody;
 
     private void Awake()
     {
         this.intactLayerId  = this.gameObject.layer;   // 配置時のレイヤーを覚える
         this.droppedLayerId = LayerMask.NameToLayer(this.droppedLayerName);
         this.blockAnimation = GetComponentInChildren<BlockAnimation>();
+        this.blockBody = this.blockCollider != null
+            ? this.blockCollider.attachedRigidbody : GetComponent<Rigidbody>();
     }
 
     public override void OnNetworkSpawn()
@@ -67,26 +73,51 @@ public class BreakableBlock : NetworkBehaviour
         this.damage.Value += power;
         if (this.damage.Value < this.durability) return;
 
+        Vector3 dropPosition = this.blockCollider != null
+            ? this.blockCollider.bounds.center : transform.position;
+
+        // 先にブロックの当たり判定を消し、生成したアイテムと衝突させない。
+        this.state.Value = BlockState.Consumed;
+
         if (this.TryRollItem(out Items item))
-        {
-            this.droppedItem.Value = item;
-            this.state.Value = BlockState.Dropped;
-        }
-        else
-        {
-            this.state.Value = BlockState.Consumed;   // 何も出ないブロック
-        }
+            this.SpawnDroppedItem(item, dropPosition);
     }
 
-    private void OnTriggerEnter(Collider other)
+    private void SpawnDroppedItem(Items item, Vector3 position)
     {
-        if (!IsServer) return;
-        if (this.state.Value != BlockState.Dropped) return;
-        if (!other.TryGetComponent(out PlayerItem playerItem)) return;
+        if (ItemDatabase.Instance == null)
+            return;
 
-        if (!playerItem.TryApplyItemServer(this.droppedItem.Value)) return;
+        ItemBase data = ItemDatabase.Instance.GetItem(item);
+        GameObject prefab = data != null ? data.itemPrefab : null;
+        if (prefab == null || !prefab.TryGetComponent<DroppedItem>(out _)
+            || !prefab.TryGetComponent<NetworkObject>(out _))
+        {
+            Debug.LogWarning($"{item}: Item PrefabにDroppedItem付きのネットワークPrefabを設定してください。", this);
+            return;
+        }
 
-        this.state.Value = BlockState.Consumed;
+        if (!this.NetworkManager.NetworkConfig.Prefabs.Contains(prefab))
+        {
+            Debug.LogWarning($"{prefab.name}: Network Prefabsに登録してください。", this);
+            return;
+        }
+
+        GameObject instance = Instantiate(prefab, position, prefab.transform.rotation);
+        instance.GetComponent<DroppedItem>().Initialize(item);
+        instance.GetComponent<NetworkObject>().Spawn(destroyWithScene: true);
+
+        // Spawnで物理演算の権限が確定してから、ホスト側で初速を与える。
+        float angle = this.dropLaunchAngle * Mathf.Deg2Rad;
+        float azimuth = Random.Range(0f, Mathf.PI * 2f);
+        Vector3 direction = new Vector3(
+            Mathf.Sin(angle) * Mathf.Cos(azimuth),
+            Mathf.Cos(angle),
+            Mathf.Sin(angle) * Mathf.Sin(azimuth)
+        );
+
+        Rigidbody body = instance.GetComponent<Rigidbody>();
+        body.linearVelocity = direction * this.dropLaunchSpeed;
     }
 
     private bool TryRollItem(out Items item)
@@ -120,40 +151,20 @@ public class BreakableBlock : NetworkBehaviour
     /// <summary>今の状態を静的に反映する。壊れる演出はここではなく OnStateChanged が持つ</summary>
     private void ApplyVisual(BlockState s)
     {
-        if (this.blockCollider != null) this.blockCollider.enabled = (s == BlockState.Intact);
-        if (this.dropVisual    != null) this.dropVisual.SetActive(s == BlockState.Dropped);
-        if (this.dropTrigger   != null) this.dropTrigger.enabled  = (s == BlockState.Dropped);
+        // 破壊後のブロック本体が床を抜けて落ち続けないよう停止する。
+        if (s != BlockState.Intact && this.blockBody != null)
+            this.blockBody.isKinematic = true;
 
-        this.ApplyDropModel(s);
+        if (this.blockCollider != null) this.blockCollider.enabled = (s == BlockState.Intact);
+        if (this.dropVisual != null && this.dropVisual != this.gameObject)
+            this.dropVisual.SetActive(false);
+        if (this.dropTrigger != null) this.dropTrigger.enabled = false;
 
         // 落ちたアイテムに弾道・照準が反応しないよう、壊れたらレイヤーを戻す
         this.gameObject.layer = (s == BlockState.Intact) ? this.intactLayerId : this.droppedLayerId;
 
         // 消す側は PlayBreakThenHide に任せる。ここでは戻すときだけ扱う
         if (this.blockVisual != null && s == BlockState.Intact) this.blockVisual.SetActive(true);
-    }
-
-    /// <summary>
-    /// 落ちたアイテムのモデルを差し込む。見た目だけなので各クライアントがローカルに生成する。
-    /// droppedItem は state より先に届くので、途中参加でも正しいモデルが出る
-    /// </summary>
-    private void ApplyDropModel(BlockState s)
-    {
-        if (s != BlockState.Dropped)
-        {
-            if (this.dropInstance != null) Destroy(this.dropInstance);
-            this.dropInstance = null;
-            return;
-        }
-
-        if (this.dropInstance != null) return;   // 既に出ている
-        if (this.dropVisual == null || ItemDatabase.Instance == null) return;
-
-        var data = ItemDatabase.Instance.GetItem(this.droppedItem.Value);
-        if (data == null || data.itemPrefab == null) return;   // 未設定なら何も出さない
-
-        // 第3引数 false でマウントのローカル座標に置く。true だとプレハブの世界座標を保とうとする
-        this.dropInstance = Instantiate(data.itemPrefab, this.dropVisual.transform, false);
     }
 
     /// <summary>当たり判定はもう切れている。見た目だけアニメの分だけ残す</summary>

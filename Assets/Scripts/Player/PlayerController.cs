@@ -674,6 +674,14 @@ public class PlayerController : NetworkBehaviour
 
     private void OnControllerColliderHit(ControllerColliderHit hit)
     {
+        // 床・段差判定の早期returnより先に、どの方向からの接触でも取得を要求する。
+        if (this.IsOwner && this.IsControllable)
+        {
+            DroppedItem item = hit.collider.GetComponentInParent<DroppedItem>();
+            if (item != null)
+                item.RequestPickup();
+        }
+
         // 接触面へ向かう成分だけを除去する。壁沿いの移動と斜面の上りは維持する。
         if (hit.normal.y > 0.01f) return;
         // Move 中は段差の側面にも触れる。乗り越え可能な高さでは水平速度を削らない。

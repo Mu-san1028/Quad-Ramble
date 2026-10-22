@@ -12,6 +12,7 @@ public sealed class RoundFinishUI : MonoBehaviour
     private bool showing;
     private float elapsed;
     private float startX;
+    private RoundManager soundRound;
 
     private void OnEnable()
     {
@@ -52,6 +53,13 @@ public sealed class RoundFinishUI : MonoBehaviour
             panel.gameObject.SetActive(true);
             showing = true;
             elapsed = 0f;
+
+            if (this.soundRound != round)
+            {
+                this.soundRound = round;
+                SEAudio.Instance?.Play(SEType.RoundFinish);
+            }
+
             return;
         }
 

@@ -4,12 +4,21 @@ using TMPro;
 public class CountdownUI : MonoBehaviour
 {
     [SerializeField] private TextMeshProUGUI countdownText;
+    private RoundManager observedRound;
+    private bool countdownPlayed;
 
     void Update()
     {
         if (this.countdownText == null) return;
 
-        if (RoundManager.Instance == null)
+        var round = RoundManager.Instance;
+        if (round != this.observedRound)
+        {
+            this.observedRound = round;
+            this.countdownPlayed = false;
+        }
+
+        if (round == null || !round.IsSpawned || round.IsRoundOver)
         {
             this.SetVisible(false);
             return;
@@ -32,10 +41,17 @@ public class CountdownUI : MonoBehaviour
 
         this.SetVisible(true);
 
+        // 3・2・1・Startをまとめた音源を、表示開始時に一度だけ再生する。
+        if (!this.countdownPlayed)
+        {
+            this.countdownPlayed = true;
+            SEAudio.Instance?.Play(SEType.Countdown);
+        }
+
         // 最後の1秒は "Start!"、それより前は 3・2・1
-        this.countdownText.text = remaining <= 1f
+        this.countdownText.text = remaining <= RoundManager.StartDisplayDuration
             ? "Start!"
-            : Mathf.CeilToInt(remaining - 1f).ToString();
+            : Mathf.CeilToInt(remaining - RoundManager.StartDisplayDuration).ToString();
     }
 
     private void SetVisible(bool visible)

@@ -9,7 +9,14 @@ public enum SEType
     Attack,
     Explosion,
     Countdown,
-    RoundStart
+    RoundStart,
+    PlayerCountChange,
+    RoomConnect,
+    CharacterSelect,
+    ItemPickup,
+    PowerUpPickup,
+    WeaponSelect,
+    RoundFinish
 }
 
 public class SEAudio : MonoBehaviour

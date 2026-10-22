@@ -120,7 +120,10 @@ public class PlayerItem : NetworkBehaviour
     private void NotifyUpgradeOwnerRpc(string message)
     {
         if (IsOwner)
+        {
             LocalItemNotice?.Invoke(message, NoticeType.Upgrade);
+            SEAudio.Instance?.Play(SEType.PowerUpPickup);
+        }
     }
 
     private static string GetDisplayName(ItemBase data)
@@ -155,11 +158,14 @@ public class PlayerItem : NetworkBehaviour
             EquipWeapon(slot);
 
         if (IsOwner)
+        {
             LocalItemNotice?.Invoke(GetPickupMessage(weapon), NoticeType.Weapon);
+            SEAudio.Instance?.Play(SEType.ItemPickup);
+        }
     }
 
     // 武器切り替えの共通ロジック（direction は 1 または -1 が入る）
-    public void SwitchWeapon(int direction)
+    public void SwitchWeapon(int direction, bool playSE = true)
     {
         // 3つのスロットを順番に探す
         for (int i = 1; i <= this.Weapons.Length; i++)
@@ -170,7 +176,14 @@ public class PlayerItem : NetworkBehaviour
             // 箱が存在し、かつ、中身(itemData)も空っぽじゃない時だけ持ち替える
             if (this.Weapons[nextIndex] != null && this.Weapons[nextIndex].itemData != null)
             {
+                if (nextIndex == this.currentWeaponIndex)
+                    return;
+
                 EquipWeapon(nextIndex);
+
+                if (playSE && IsOwner)
+                    SEAudio.Instance?.Play(SEType.WeaponSelect);
+
                 break;
             }
         }
@@ -189,7 +202,7 @@ public class PlayerItem : NetworkBehaviour
             ReleaseWeaponSlotServerRpc(this.currentWeaponIndex);
 
         // 他に武器が残っていれば自動で持ち替える（SwitchWeapon は空スロットを飛ばす）
-        this.SwitchWeapon(1);
+        this.SwitchWeapon(1, playSE: false);
     }
 
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Owner)]

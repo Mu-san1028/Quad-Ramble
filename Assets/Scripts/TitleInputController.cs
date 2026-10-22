@@ -17,6 +17,10 @@ public class TitleInputController : MonoBehaviour
 
     private PlayerInput playerInput;
     private Gamepad pairedPad;
+    private Keyboard pairedKeyboard;
+    private Mouse pairedMouse;
+    private bool inputInitialized;
+    private bool useKeyboardMouse;
 
     private InputAction navigationAction;
     private readonly Dictionary<int, InputBinding> navigationOverrides = new();
@@ -52,10 +56,24 @@ public class TitleInputController : MonoBehaviour
         if (pad != null && !pad.added)
             pad = null;
 
-        if (pad != this.pairedPad)
+        Keyboard keyboard = pad == null && LocalGamepad.Seat == 0 ? Keyboard.current : null;
+        Mouse mouse = pad == null && LocalGamepad.Seat == 0 ? Mouse.current : null;
+        bool keyboardAvailable = keyboard != null && keyboard.added && mouse != null && mouse.added;
+        if (!keyboardAvailable)
+        {
+            keyboard = null;
+            mouse = null;
+        }
+
+        if (!this.inputInitialized || pad != this.pairedPad
+            || keyboard != this.pairedKeyboard || mouse != this.pairedMouse)
         {
             this.StopInput();
             this.pairedPad = pad;
+            this.pairedKeyboard = keyboard;
+            this.pairedMouse = mouse;
+            this.useKeyboardMouse = keyboardAvailable;
+            this.inputInitialized = true;
             this.waitingForRelease = true;
 
             if (pad != null)
@@ -68,9 +86,14 @@ public class TitleInputController : MonoBehaviour
                 // ペアリング後も、入力を許可するまでMapは止める。
                 this.playerInput.actions.Disable();
             }
+            else if (this.useKeyboardMouse)
+            {
+                this.playerInput.SwitchCurrentControlScheme("Keyboard&Mouse", keyboard, mouse);
+                this.playerInput.actions.Disable();
+            }
         }
 
-        if (this.pairedPad == null)
+        if (this.pairedPad == null && !this.useKeyboardMouse)
             return;
 
         if (this.networkConnect.State
@@ -86,6 +109,7 @@ public class TitleInputController : MonoBehaviour
             != NetworkConnect.ConnectionState.Connected)
         {
             this.StopInput();
+            this.waitingForRelease = true;
             return;
         }
 
@@ -164,7 +188,8 @@ public class TitleInputController : MonoBehaviour
 
         this.StopInput();
 
-        this.playerInput.SwitchCurrentActionMap("Title");
+        this.playerInput.SwitchCurrentActionMap(this.useKeyboardMouse ? "UI" : "Title");
+        this.uiInputModule.enabled = this.useKeyboardMouse;
         this.titleInputEnabled = true;
     }
 
@@ -179,7 +204,8 @@ public class TitleInputController : MonoBehaviour
 
         this.StopInput();
 
-        this.RestrictNavigationToDpad();
+        if (!this.useKeyboardMouse)
+            this.RestrictNavigationToDpad();
         this.playerInput.SwitchCurrentActionMap("UI");
         this.uiInputModule.enabled = true;
 
@@ -190,7 +216,7 @@ public class TitleInputController : MonoBehaviour
 
     private void UpdateCharacterRotation()
     {
-        if (this.playerPresentation == null)
+        if (this.playerPresentation == null || this.pairedPad == null)
             return;
 
         float horizontal = this.pairedPad.rightStick.ReadValue().x;
@@ -257,12 +283,28 @@ public class TitleInputController : MonoBehaviour
             return true;
 
         // 接続に使ったボタン・方向入力が残ったまま切り替えない。
-        bool held =
-            this.pairedPad.buttonSouth.isPressed
-            || this.pairedPad.buttonEast.isPressed
-            || this.pairedPad.dpad.ReadValue() != Vector2.zero
-            || this.pairedPad.leftStick.ReadValue().sqrMagnitude > 0.04f
-            || this.pairedPad.rightStick.ReadValue().sqrMagnitude > 0.04f;
+        bool held;
+        if (this.useKeyboardMouse)
+        {
+            if (this.pairedKeyboard == null || this.pairedMouse == null)
+                return false;
+
+            held = this.pairedMouse.leftButton.isPressed
+                || this.pairedKeyboard.enterKey.isPressed
+                || this.pairedKeyboard.numpadEnterKey.isPressed
+                || this.pairedKeyboard.spaceKey.isPressed;
+        }
+        else
+        {
+            if (this.pairedPad == null)
+                return false;
+
+            held = this.pairedPad.buttonSouth.isPressed
+                || this.pairedPad.buttonEast.isPressed
+                || this.pairedPad.dpad.ReadValue() != Vector2.zero
+                || this.pairedPad.leftStick.ReadValue().sqrMagnitude > 0.04f
+                || this.pairedPad.rightStick.ReadValue().sqrMagnitude > 0.04f;
+        }
 
         if (held)
             return false;
@@ -290,5 +332,6 @@ public class TitleInputController : MonoBehaviour
 
         this.StopInput();
         this.waitingForRelease = true;
+        this.inputInitialized = false;
     }
 }

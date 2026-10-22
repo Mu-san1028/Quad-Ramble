@@ -217,14 +217,26 @@ public class PlayerController : NetworkBehaviour
         cameraRig.Rebind(aimPivot != null ? aimPivot : transform);
     }
 
-    /// <summary>この端末に割り当てられたパッドだけを受け付ける</summary>
+    /// <summary>指定パッドを使用し、通常席でパッドがない場合はキーボード・マウスを使用する。</summary>
     private void PairInputDevice(PlayerInput input)
     {
         var pad = LocalGamepad.Current;
-        if (pad == null)
+        input.neverAutoSwitchControlSchemes = true;
+
+        if (pad == null || !pad.added)
         {
-            // パッドが無ければ従来どおり全デバイス受付（エディタのキーボード確認を壊さない）
-            if (LocalGamepad.Seat > 0) Debug.LogError($"[Input] seat={LocalGamepad.Seat} のパッドが見つかりません");
+            if (LocalGamepad.Seat == 0 && Keyboard.current != null && Keyboard.current.added
+                && Mouse.current != null && Mouse.current.added)
+            {
+                input.SwitchCurrentControlScheme("Keyboard&Mouse", Keyboard.current, Mouse.current);
+            }
+            else
+            {
+                // 別の席のパッドやキーボードを自動取得させない。
+                input.enabled = false;
+                Debug.LogWarning($"[Input] seat={LocalGamepad.Seat} の入力デバイスが見つかりません", this);
+            }
+
             return;
         }
 

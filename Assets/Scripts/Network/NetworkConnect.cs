@@ -21,15 +21,24 @@ public class NetworkConnect : MonoBehaviour
     [Header("接続設定")]
     [SerializeField, Min(1f)] private float connectionTimeout = 15f;
 
+    [Header("参加人数の初期設定")]
+    [SerializeField, Range(1, 4)] private int initialPlayerCount = 1;
+
     public ConnectionState State { get; private set; }
         = ConnectionState.Idle;
 
-    public int SelectedPlayerCount { get; private set; } = 4;
+    public int SelectedPlayerCount { get; private set; }
 
     public string ErrorMessage { get; private set; } = "";
 
     private NetworkManager manager;
     private float connectionDeadline;
+
+
+    private void Awake()
+    {
+        this.SelectedPlayerCount = Mathf.Clamp(this.initialPlayerCount, 1, 4);
+    }
 
 
     private void Start()

@@ -118,8 +118,32 @@ public class PlayerManager : MonoBehaviour
 
         if (Players.Count > 0)
         {
-            // 残っているプレイヤーを1位として追加
-            ranking.Add(new List<PlayerController>(Players));
+            var raceGoal = FinishedPlayers.Count == 0
+                ? FindAnyObjectByType<RaceGoal>()
+                : null;
+
+            if (raceGoal != null)
+            {
+                // Raceで誰もゴールしていない場合は、終了時のゴールへの直線距離で順位を決める。
+                // Players自体は並べ替えず、同距離ではClientIdで順序を固定する。
+                Vector3 goalPosition = raceGoal.transform.position;
+                var unfinishedPlayers = new List<PlayerController>(Players);
+                unfinishedPlayers.Sort((a, b) =>
+                {
+                    float distanceA = (a.transform.position - goalPosition).sqrMagnitude;
+                    float distanceB = (b.transform.position - goalPosition).sqrMagnitude;
+                    int comparison = distanceA.CompareTo(distanceB);
+                    return comparison != 0 ? comparison : a.OwnerClientId.CompareTo(b.OwnerClientId);
+                });
+
+                foreach (var player in unfinishedPlayers)
+                    ranking.Add(new List<PlayerController> { player });
+            }
+            else
+            {
+                // 通常は残っているプレイヤーを同順位として追加。
+                ranking.Add(new List<PlayerController>(Players));
+            }
         }
 
         for (int i = EliminatedPlayers.Count - 1; i >= 0; i--)

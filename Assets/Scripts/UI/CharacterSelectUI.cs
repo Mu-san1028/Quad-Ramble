@@ -260,6 +260,21 @@ public class CharacterSelectUI : MonoBehaviour
         return nearest;
     }
 
+    public void CancelSelection()
+    {
+        ConnectionContainer container = ConnectionContainer.Instance;
+        if (container == null || NetworkManager.Singleton == null) return;
+
+        Connection me = container.GetConnection(NetworkManager.Singleton.LocalClientId);
+        if (me == null) return;
+
+        this.pendingCharacterIndex = -1;
+        if (me.IsReady)
+            container.SetReadyRpc(false);
+
+        this.SelectFirstAvailable();
+    }
+
     private void ToggleReady()
     {
         ConnectionContainer container = ConnectionContainer.Instance;

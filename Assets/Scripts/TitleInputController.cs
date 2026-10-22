@@ -171,6 +171,19 @@ public class TitleInputController : MonoBehaviour
     }
 
 
+    public void OnCancel(InputValue value)
+    {
+        if (!value.isPressed || !this.characterInputEnabled
+            || this.networkConnect.State != NetworkConnect.ConnectionState.Connected
+            || !this.characterSelect.IsInputReady)
+        {
+            return;
+        }
+
+        this.characterSelect.CancelSelection();
+    }
+
+
     private bool CanAcceptTitleInput()
     {
         return this.titleInputEnabled

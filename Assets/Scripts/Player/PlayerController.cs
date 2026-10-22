@@ -13,6 +13,7 @@ using Unity.Netcode.Components;
 /// - キャラクターが移動方向に向くように回転
 /// </summary>
 [RequireComponent(typeof(CharacterController), typeof(PlayerInput), typeof(PlayerItem))]
+[DefaultExecutionOrder(-200)]
 public class PlayerController : NetworkBehaviour
 {
     [SerializeField] private float moveSpeed = 5f; // 基本の移動速度
@@ -128,8 +129,19 @@ public class PlayerController : NetworkBehaviour
         ignoreNetworkObjectId = NetworkObjectId,
     };
 
+    private void Awake()
+    {
+        // PlayerInputのOnEnableより先に止め、所有者とシーンが確定してから有効化する。
+        if (!this.allowOfflineControl)
+            GetComponent<PlayerInput>().enabled = false;
+    }
+
+
     public override void OnNetworkSpawn()
     {
+        // TitlePlayerPresentation.Updateを待たず、生成時点で入力の担当を確定する。
+        this.IsTitleMode = FindAnyObjectByType<TitleInputController>() != null;
+
         PlayerManager.Instance.AddPlayer(this);
         PlayerInput input = GetComponent<PlayerInput>();
 
@@ -212,6 +224,10 @@ public class PlayerController : NetworkBehaviour
 
     private void RefreshMainCamera(Scene scene, LoadSceneMode mode)
     {
+        // Titleの入力オブジェクトが破棄された後に、通常操作へ戻す。
+        if (this.IsTitleMode && FindAnyObjectByType<TitleInputController>() == null)
+            this.SetTitleMode(false);
+
         if (!IsOwner) return;
         isAiming = false;
         cameraRig.Rebind(aimPivot != null ? aimPivot : transform);

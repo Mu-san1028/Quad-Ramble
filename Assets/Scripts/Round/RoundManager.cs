@@ -5,6 +5,8 @@ using Unity.Netcode;
 public class RoundManager : NetworkBehaviour
 {
     public static RoundManager Instance { get; private set; }
+    public const float StartDisplayDuration = 1f;
+    private bool playingStarted;
 
     [Header("ラウンド設定")]
     [SerializeField] private float roundDuration = 90f;     // このステージの制限時間
@@ -58,6 +60,8 @@ public class RoundManager : NetworkBehaviour
 
         if (!IsServer) return;
 
+        this.playingStarted = false;
+
         this.playerSpawner = FindAnyObjectByType<PlayerSpawner>();
         this.scoring = FindAnyObjectByType<RoundScoring>();
 
@@ -92,15 +96,20 @@ public class RoundManager : NetworkBehaviour
             return;
         }
 
-        // カウントダウン中はラウンド時間を減らさない
+        // 最後の1秒はStart表示を残したままプレイする。
         if (this.countdownRemaining.Value > 0f)
         {
-            this.countdownRemaining.Value -= Time.deltaTime;
-            if (this.countdownRemaining.Value <= 0f)
-            {
-                this.countdownRemaining.Value = 0f;
-                this.StartPlaying();
-            }
+            this.countdownRemaining.Value = Mathf.Max(0f,
+                this.countdownRemaining.Value - Time.deltaTime);
+        }
+
+        if (this.countdownRemaining.Value > StartDisplayDuration)
+            return;
+
+        if (!this.playingStarted)
+        {
+            this.playingStarted = true;
+            this.StartPlaying();
             return;
         }
 

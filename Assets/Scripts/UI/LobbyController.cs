@@ -186,6 +186,10 @@ public class LobbyController : MonoBehaviour
 
                 break;
 
+            case NetworkConnect.ConnectionState.Preparing:
+                SetText(this.connectText, "オンライン接続を準備しています…");
+                break;
+
             case NetworkConnect.ConnectionState.Connecting:
                 SetText(this.connectText, "接続しています…");
                 break;

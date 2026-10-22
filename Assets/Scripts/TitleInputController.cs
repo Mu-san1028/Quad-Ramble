@@ -56,8 +56,10 @@ public class TitleInputController : MonoBehaviour
         if (pad != null && !pad.added)
             pad = null;
 
-        Keyboard keyboard = LocalGamepad.Seat == 0 ? Keyboard.current : null;
-        Mouse mouse = LocalGamepad.Seat == 0 ? Mouse.current : null;
+        // Relayでは各ウィンドウで参加コードを入力できるようにする。
+        bool allowKeyboard = LocalGamepad.Seat == 0 || this.networkConnect.UsesRelay;
+        Keyboard keyboard = allowKeyboard ? Keyboard.current : null;
+        Mouse mouse = allowKeyboard ? Mouse.current : null;
         bool keyboardAvailable = keyboard != null && keyboard.added;
         if (!keyboardAvailable)
         {
@@ -98,6 +100,16 @@ public class TitleInputController : MonoBehaviour
         if (this.networkConnect.State
             == NetworkConnect.ConnectionState.Idle)
         {
+            if (this.networkConnect.IsEditingJoinCode)
+            {
+                this.waitingForRelease = true;
+                return;
+            }
+
+            // 入力欄を閉じたEnterなどを、ホスト開始操作として持ち越さない。
+            if (this.titleInputEnabled)
+                this.CheckReleased();
+
             if (!this.titleInputEnabled)
                 this.TryEnableTitleInput();
 
@@ -187,6 +199,8 @@ public class TitleInputController : MonoBehaviour
     private bool CanAcceptTitleInput()
     {
         return this.titleInputEnabled
+            && !this.networkConnect.IsEditingJoinCode
+            && !this.waitingForRelease
             && (this.pairedPad != null || this.useKeyboardMouse)
             && this.networkConnect.State
                 == NetworkConnect.ConnectionState.Idle;
@@ -201,8 +215,12 @@ public class TitleInputController : MonoBehaviour
         this.StopInput();
 
         this.playerInput.SwitchCurrentActionMap("Title");
-        // タイトルの決定キーをUIのSubmitにも流さない。
-        this.uiInputModule.enabled = false;
+        // マウスで入力欄と既存ボタンを操作できるようにする。
+        // 決定・キャンセル・方向キーはTitleのショートカットと二重に流さない。
+        this.uiInputModule.enabled = true;
+        this.uiInputModule.move?.action?.Disable();
+        this.uiInputModule.submit?.action?.Disable();
+        this.uiInputModule.cancel?.action?.Disable();
         this.titleInputEnabled = true;
     }
 

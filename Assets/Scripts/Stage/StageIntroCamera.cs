@@ -46,6 +46,9 @@ public sealed class StageIntroCamera : MonoBehaviour
             return;
         }
 
+        if (!round.IsReady)
+            return;
+
         if (!round.IsIntro)
         {
             Finish();

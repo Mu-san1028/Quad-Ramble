@@ -22,7 +22,11 @@ public class RoundInfoUI : MonoBehaviour
     private void Update()
     {
         var round = RoundManager.Instance;
-        if (round == null) return;
+        if (round == null || !round.IsSpawned || !round.IsReady)
+        {
+            this.panel.gameObject.SetActive(false);
+            return;
+        }
 
         if (round.IsIntro)
         {

@@ -1,12 +1,17 @@
 using UnityEngine;
 using System.Collections;
+using System.Collections.Generic;
 using Unity.Netcode;
+using UnityEngine.SceneManagement;
 
 public class RoundManager : NetworkBehaviour
 {
     public static RoundManager Instance { get; private set; }
     public const float StartDisplayDuration = 1f;
     private bool playingStarted;
+    private NetworkSceneManager loadingSceneManager;
+    private readonly NetworkVariable<bool> spawnReady = new(false);
+    public bool IsReady => this.spawnReady.Value;
 
     [Header("ラウンド設定")]
     [SerializeField] private float roundDuration = 90f;     // このステージの制限時間
@@ -43,7 +48,7 @@ public class RoundManager : NetworkBehaviour
     [SerializeField] private float introDuration = 5f;
     private readonly NetworkVariable<float> introRemaining = new ();
     public float IntroRemaining => this.introRemaining.Value;
-    public bool IsIntro => this.introRemaining.Value > 0f;
+    public bool IsIntro => !this.IsReady || this.introRemaining.Value > 0f;
     private readonly WaitForSeconds beforeSceneTransition = new (3);
 
     // サーバーだけが書き込み、全員が読む
@@ -66,9 +71,49 @@ public class RoundManager : NetworkBehaviour
         this.scoring = FindAnyObjectByType<RoundScoring>();
 
         GameManager.Instance.SetState(GameState.Countdown);
+
+        // Titleが残っているクライアントへ、先にテレポートを送らない。
+        if (NetworkManager.NetworkConfig.EnableSceneManagement && GameManager.Instance.CurrentRound > 0)
+        {
+            this.loadingSceneManager = NetworkManager.SceneManager;
+            this.loadingSceneManager.OnLoadEventCompleted += this.HandleLoadCompleted;
+            return;
+        }
+
+        // ステージを直接開いてホストを開始した場合はLoadイベントが発生しない。
+        this.InitializePlayers();
+    }
+
+    private void HandleLoadCompleted(string sceneName, LoadSceneMode mode,
+        List<ulong> completed, List<ulong> timedOut)
+    {
+        if (!IsServer || !IsSpawned || sceneName != gameObject.scene.name)
+            return;
+
+        this.UnsubscribeSceneLoading();
+
+        // 読み込みに失敗した端末をTitleに残したまま参加させない。
+        foreach (ulong clientId in timedOut)
+        {
+            Debug.LogWarning($"[RoundSpawn] Scene load timed out: ClientId={clientId}", this);
+            if (clientId != NetworkManager.ServerClientId && NetworkManager.ConnectedClients.ContainsKey(clientId))
+                NetworkManager.DisconnectClient(clientId);
+        }
+
+        this.InitializePlayers(completed);
+    }
+
+    private void InitializePlayers(List<ulong> loadedClients = null)
+    {
+        if (!IsServer || !IsSpawned || this.IsReady)
+            return;
+
         PlayerManager.Instance.ResetPlayers();
 
         var activePlayers = PlayerManager.Instance.Players;
+        activePlayers.RemoveAll(player => player == null || !player.IsSpawned
+            || (loadedClients != null && !loadedClients.Contains(player.OwnerClientId)));
+
         for (int i = 0; i < activePlayers.Count; i++)
         {
             this.playerSpawner.SpawnPlayer(activePlayers[i], i);
@@ -78,17 +123,27 @@ public class RoundManager : NetworkBehaviour
         this.remainingTime.Value = this.roundDuration;
         this.countdownRemaining.Value = this.countdownDuration;
         this.introRemaining.Value = this.introDuration;
+        this.spawnReady.Value = true;
+    }
 
+    private void UnsubscribeSceneLoading()
+    {
+        if (this.loadingSceneManager == null)
+            return;
+
+        this.loadingSceneManager.OnLoadEventCompleted -= this.HandleLoadCompleted;
+        this.loadingSceneManager = null;
     }
 
     public override void OnNetworkDespawn()
     {
+        this.UnsubscribeSceneLoading();
         if (Instance == this) Instance = null;
     }
 
     void Update()
     {
-        if (!IsServer || this.IsRoundOver) return;
+        if (!IsServer || !this.IsReady || this.IsRoundOver) return;
 
         if (this.introRemaining.Value > 0f)
         {
@@ -132,7 +187,7 @@ public class RoundManager : NetworkBehaviour
     
     public void EndRound()
     {
-        if (!IsServer || this.IsRoundOver) return;
+        if (!IsServer || !this.IsReady || this.IsRoundOver) return;
         StartCoroutine(this.EndRoundRoutine("Finish !"));
     }
 

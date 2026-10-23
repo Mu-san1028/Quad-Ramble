@@ -13,10 +13,11 @@ public class Connection
     public int CharacterIndex { get; set; } = -1;
     public bool IsReady { get; set; }
 
-    public Connection(ulong id, ulong clientId)
+    public Connection(ulong id, ulong clientId, int score = 0)
     {
         this.Id = id;
         this.ClientId = clientId;
+        this.Score = score;
     }
 
     public void AddScore(int delta)
@@ -97,8 +98,12 @@ private void AppendServerRpc(ulong clientId, RpcParams rpcParams = default)
         if (this.GetConnection(senderId) != null)
             return;
 
+        // 途中離脱しても、既存プレイヤーの番号は詰め直さない。
+        ulong playerId = 0;
+        while (this.connections.Any(c => c.Id == playerId)) playerId++;
+
         this.connections.Add(
-            new Connection((ulong)this.connections.Count, senderId)
+            new Connection(playerId, senderId)
             {
                 Name = "Player"
             }
@@ -115,7 +120,7 @@ private void AppendServerRpc(ulong clientId, RpcParams rpcParams = default)
             this.connections.Clear();
             foreach (var e in roster)
             {
-                this.connections.Add(new Connection((ulong)this.connections.Count, e.ClientId)
+                this.connections.Add(new Connection(e.PlayerId, e.ClientId, e.Score)
                 {
                     Name = e.Name.ToString(),
                     CharacterIndex = e.CharacterIndex,
@@ -133,6 +138,8 @@ private void AppendServerRpc(ulong clientId, RpcParams rpcParams = default)
             .Select(c => new RosterEntry
             {
                 ClientId = c.ClientId,
+                PlayerId = c.Id,
+                Score = c.Score,
                 Name = c.Name,
                 CharacterIndex = c.CharacterIndex,
                 IsReady = c.IsReady
@@ -207,8 +214,16 @@ private void AppendServerRpc(ulong clientId, RpcParams rpcParams = default)
 
     public int GetRank(ulong id)
     {
-        List<(Connection, int)> sorted = this.connections.OrderBy(c => c.Score).Select((c, i) => (c, i)).ToList();
-        return sorted.Find(pair => pair.Item1.Id == id).Item2 + 1;
+        Connection player = this.connections.Find(c => c.Id == id);
+        return player == null ? 0 : 1 + this.connections.Count(c => c.Score > player.Score);
+    }
+
+    /// <summary>ラウンドの全得点加算後に、累計成績をまとめて同期する。</summary>
+    public void BroadcastScores()
+    {
+        if (!IsServer || !IsSpawned) return;
+
+        this.BroadcastRoster();
     }
 
     public void BroadcastFinalScores()

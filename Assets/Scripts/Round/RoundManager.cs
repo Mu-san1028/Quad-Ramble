@@ -206,6 +206,7 @@ public class RoundManager : NetworkBehaviour
         GameManager.Instance.SetState(GameState.Countdown);
         if (this.scoring != null) this.scoring.AwardPoints();
         else this.AwardPoints();
+        ConnectionContainer.Instance?.BroadcastScores();
         Debug.Log(message);
 
         yield return this.beforeSceneTransition;

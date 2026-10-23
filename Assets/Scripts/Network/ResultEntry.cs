@@ -15,6 +15,8 @@ public struct ResultEntry : INetworkSerializable
 
 public struct RosterEntry : INetworkSerializable
 {
+    public ulong PlayerId;
+    public int Score;
     public ulong ClientId;
     public FixedString64Bytes Name;
     public int CharacterIndex;
@@ -23,6 +25,8 @@ public struct RosterEntry : INetworkSerializable
     public void NetworkSerialize<T>(BufferSerializer<T> serializer) where T : IReaderWriter
     {
         serializer.SerializeValue(ref ClientId);
+        serializer.SerializeValue(ref PlayerId);
+        serializer.SerializeValue(ref Score);
         serializer.SerializeValue(ref Name);
         serializer.SerializeValue(ref CharacterIndex);
         serializer.SerializeValue(ref IsReady);

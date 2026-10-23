@@ -19,6 +19,15 @@ public class WeaponData : ItemBase
     public float Power;          // 攻撃の強さ
     public float attackWindup;   // 攻撃するまでの待機時間
 
+    [Header("武器SE（未設定なら再生しない）")]
+    public AudioClip useSE;
+    [Range(0f, 1f)] public float useSEVolume = 1f;
+    [Tooltip("近接武器：敵への命中時。投擲武器：爆発時に下の設定に従って1回再生。")]
+    public AudioClip hitSE;
+    [Range(0f, 1f)] public float hitSEVolume = 1f;
+    [Tooltip("投擲武器のみ。ONなら敵に当たらなくても爆発SEを再生。OFFなら爆発範囲に敵がいた場合のみ再生。")]
+    public bool playExplosionSEOnMiss = true;
+
     [Header("Melee：攻撃範囲")]
     public AttackRangeData attackRange;
 

@@ -35,6 +35,12 @@ public class PlayerController : NetworkBehaviour
 
     // 接地の真値。所有者しか Move() を呼ばないので、他人のコピーでは isGrounded が更新されない
     private readonly NetworkVariable<bool> networkGrounded = new(writePerm: NetworkVariableWritePermission.Owner);
+    private readonly NetworkVariable<bool> networkRising = new(writePerm: NetworkVariableWritePermission.Owner);
+
+    /// <summary>坂道の座標変化ではなく、ジャンプ・衝撃による上昇をアニメーションへ伝える。</summary>
+    public bool IsRising => (IsSpawned && !IsOwner)
+        ? this.networkRising.Value
+        : (this.IsControllable && this.velocity.y + this.impact.y > 0.1f);
 
     /// <summary>アニメーション用の接地判定。自分とオフラインは実測、他人は同期された値</summary>
     public bool IsGrounded => (IsSpawned && !IsOwner)
@@ -378,6 +384,7 @@ public class PlayerController : NetworkBehaviour
     [Rpc(SendTo.ClientsAndHost)]
     private void TeleportClientRpc(Vector3 position, Quaternion rotation)
     {
+        GetComponent<PlayerAnimator>()?.ResetAirborneState();
         // モデルだけのTitle回転はNetworkTransformでは同期されないため全端末で戻す。
         GetComponentInChildren<PlayerAppearance>(true)?.ResetTitleModelRotation();
         if (!IsOwner) return;
@@ -618,6 +625,10 @@ public class PlayerController : NetworkBehaviour
 
         // 体の回転より後に適用する。親の回転を継承させないため
         this.ApplyAimPivot();
+
+        // 操作停止中も更新し、上昇状態が他端末に残らないようにする。
+        if (IsSpawned && IsOwner && this.networkRising.Value != this.IsRising)
+            this.networkRising.Value = this.IsRising;
     }
 
     /// <summary>右スティックの入力を照準のヨー・ピッチに積分する</summary>
@@ -710,9 +721,10 @@ public class PlayerController : NetworkBehaviour
         if (impact.sqrMagnitude <= 0.04f) impact = Vector3.zero;
         bool isRace = SceneManager.GetSceneByName("Race").isLoaded;
         if (isRace) ResolveRacePenetration();
-        bool followRaceGround = isRace
+        bool useGroundFollow = isRace || SceneManager.GetSceneByName("Territory").isLoaded;
+        bool followGround = useGroundFollow
             && controller.isGrounded && velocity.y <= 0f && impact.y <= 0f;
-        traversingRaceStep = followRaceGround;
+        traversingRaceStep = isRace && followGround;
         // ブーストや低FPS時にも、カプセルの半径以内の距離で衝突を検出する。
         float distance = (velocity + impact).magnitude * Time.deltaTime;
         float maxStep = Mathf.Max(0.05f, controller.radius
@@ -721,7 +733,7 @@ public class PlayerController : NetworkBehaviour
         CollisionFlags collisions = CollisionFlags.None;
         for (int i = 0; i < steps; i++)
             collisions |= controller.Move((velocity + impact) * (Time.deltaTime / steps));
-        if (followRaceGround && !controller.isGrounded)
+        if (followGround && !controller.isGrounded)
         {
             collisions |= FollowRaceStepDown();
         }

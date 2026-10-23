@@ -77,6 +77,7 @@ public class PlayerController : NetworkBehaviour
     private float RangeMultiplier => this.status != null ? this.status.RangeMultiplier : 1f;
 
     private Coroutine windupRoutine;   // 溜め中のコルーチン。ラウンドをまたいで残さない
+    private int nextProjectileId;
 
 
     [Header("射撃・Raycast設定")]
@@ -209,6 +210,7 @@ public class PlayerController : NetworkBehaviour
 
     public override void OnNetworkDespawn()
     {
+        this.effects.ClearProjectiles();
         PlayerManager.Instance?.RemovePlayer(this);
     }
 
@@ -1028,13 +1030,10 @@ public class PlayerController : NetworkBehaviour
         float blastRadius = (wd?.blastRadius ?? 3f) * (straight ? 1f : this.RangeMultiplier);
         float gravity = wd?.gravityScale ?? 9.8f;
 
-        Vector3 landing = TrajectorySimulator.Simulate(startPos, initialVelocity, gravity,
-                                                       TrajectorySettings, out float flightTime, out _);
-
-        ShowProjectileClientRpc(startPos, initialVelocity, flightTime, gravity, weaponKey, landing);
-
-        Debug.Log($"[Throw] landing: {landing}, flightTime: {flightTime}, power: {power}, blastRadius: {blastRadius}");
-        StartCoroutine(ExplodeAfterDelay(landing, flightTime, blastRadius, power));
+        int projectileId = this.nextProjectileId++;
+        float lifetime = trajectoryMaxSteps * TrajectorySimulator.StepDuration;
+        ShowProjectileClientRpc(projectileId, startPos, initialVelocity, lifetime, gravity, weaponKey);
+        StartCoroutine(FlyProjectile(projectileId, startPos, initialVelocity, lifetime, gravity, blastRadius, power));
     }
 
     private void UpdateTrajectoryPreview()
@@ -1067,23 +1066,53 @@ public class PlayerController : NetworkBehaviour
     }
 
     [Rpc(SendTo.ClientsAndHost)]
-    void ShowProjectileClientRpc(Vector3 startPos, Vector3 initialVelocity, float flightTime, float gravity, Items weaponKey, Vector3 landing)
+    void ShowProjectileClientRpc(int projectileId, Vector3 startPos, Vector3 initialVelocity, float lifetime, float gravity, Items weaponKey)
     {
         var wd = ItemDatabase.Instance.GetItem(weaponKey) as WeaponData;
         if (wd?.bulletPrefab == null) return;
         StartCoroutine(effects.Projectile(
-            wd.bulletPrefab, startPos, initialVelocity,
-            flightTime, gravity, landing, wd.faceFlightDirection));
+            projectileId, wd.bulletPrefab, startPos, initialVelocity,
+            lifetime, gravity, wd.faceFlightDirection));
     }
 
-    private IEnumerator ExplodeAfterDelay(Vector3 center, float delay, float radius, float power)
+    private IEnumerator FlyProjectile(int projectileId, Vector3 start, Vector3 initialVelocity,
+        float lifetime, float gravity, float radius, float power)
     {
-        yield return new WaitForSeconds(delay);
-        if (!IsSpawned) yield break;
-        if (GameManager.Instance.currentState != GameState.Playing) yield break;
+        Vector3 center = start;
+        float elapsed = 0f;
+        var settings = TrajectorySettings;
+        while (elapsed < lifetime)
+        {
+            yield return null;
+            if (!IsSpawned) yield break;
+            if (GameManager.Instance.currentState != GameState.Playing)
+            {
+                FinishProjectileClientRpc(projectileId, center, radius, false);
+                yield break;
+            }
 
+            // 移動中の相手にも当たるよう、発射時の予測位置ではなく毎フレーム判定する。
+            float frameEnd = Mathf.Min(elapsed + Time.deltaTime, lifetime);
+            while (elapsed < frameEnd)
+            {
+                float nextTime = Mathf.Min(elapsed + TrajectorySimulator.StepDuration, frameEnd);
+                Vector3 next = TrajectorySimulator.PositionAtTime(start, initialVelocity, gravity, nextTime);
+                if (TrajectorySimulator.TryGetHit(center, next, settings, out var hit))
+                {
+                    this.ExplodeProjectile(projectileId, hit.point, radius, power);
+                    yield break;
+                }
+                center = next;
+                elapsed = nextTime;
+            }
+        }
+        this.ExplodeProjectile(projectileId, center, radius, power);
+    }
+
+    private void ExplodeProjectile(int projectileId, Vector3 center, float radius, float power)
+    {
         // 演出は全員に
-        ExplosionEffectClientRpc(center, radius);
+        FinishProjectileClientRpc(projectileId, center, radius, true);
 
         // 判定はサーバーだけが行う
         var hits = Physics.OverlapSphere(center, radius, shootableLayers | breakableLayers);
@@ -1107,9 +1136,10 @@ public class PlayerController : NetworkBehaviour
     }
 
     [Rpc(SendTo.ClientsAndHost)]
-    void ExplosionEffectClientRpc(Vector3 center, float radius)
+    void FinishProjectileClientRpc(int projectileId, Vector3 center, float radius, bool explode)
     {
-        effects.PlayExplosion(center, radius);
+        effects.FinishProjectile(projectileId, center, explode);
+        if (explode) effects.PlayExplosion(center, radius);
     }
 
     public void TakeKnockback(Vector3 force)

@@ -24,6 +24,11 @@ public enum Items
     TurnUp,      // 廃止。値がずれると各シーンの抽選テーブルが壊れるので消さない
     PowerUp,
     RangeUp,
+
+    // Append weapons
+    RedPotion,
+    BluePotion,
+    YellowPotion
 }
 
 public class ItemDatabase : MonoBehaviour

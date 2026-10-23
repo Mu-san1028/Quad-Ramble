@@ -33,6 +33,8 @@ public class TitlePlayerPresentation : MonoBehaviour
 
     private void OnEnable()
     {
+        this.leavingTitle = false;
+
         if (this.displayPoint != null)
             return;
 
@@ -240,8 +242,10 @@ public class TitlePlayerPresentation : MonoBehaviour
         this.RestoreVisuals(state);
         state.appearance?.ResetTitleModelRotation();
 
-        if (state.player != null)
-            state.player.SetTitleMode(this.leavingTitle ? false : state.previousTitleMode);
+        // シーン移行中はTitleのPlayerInputがまだデバイスを保持している。
+        // 操作の復帰はPlayerController.RefreshMainCameraに任せる。
+        if (state.player != null && !this.leavingTitle)
+            state.player.SetTitleMode(state.previousTitleMode);
     }
 
     private void RemoveDepartedPlayers()
@@ -266,6 +270,12 @@ public class TitlePlayerPresentation : MonoBehaviour
     private void OnDisable()
     {
         this.UnsubscribeSceneManager();
+
+        // 操作復帰に問題があっても、全員の非表示解除は先に完了させる。
+        foreach (PlayerState state in this.players.Values)
+        {
+            this.RestoreVisuals(state);
+        }
 
         foreach (PlayerState state in this.players.Values)
         {

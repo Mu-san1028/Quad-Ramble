@@ -152,11 +152,13 @@ public class PlayerController : NetworkBehaviour
         PlayerManager.Instance.AddPlayer(this);
         PlayerInput input = GetComponent<PlayerInput>();
 
-        input.enabled = this.IsOwner && !this.IsTitleMode;
-
-        if (input.enabled)
+        if (this.IsOwner && !this.IsTitleMode)
         {
             this.PairInputDevice(input);
+        }
+        else
+        {
+            input.enabled = false;
         }
 
         // 照準の表示は自分の画面にだけ出す
@@ -177,11 +179,13 @@ public class PlayerController : NetworkBehaviour
             this.IsOwner
             || (!this.IsSpawned && this.allowOfflineControl);
 
-        input.enabled = !enabled && canUseInput;
-
-        if (input.enabled)
+        if (!enabled && canUseInput)
         {
             this.PairInputDevice(input);
+        }
+        else
+        {
+            input.enabled = false;
         }
 
         // 入力停止前の操作や、移動の勢いを持ち越さない。
@@ -246,23 +250,43 @@ public class PlayerController : NetworkBehaviour
     {
         var pad = LocalGamepad.Current;
         input.neverAutoSwitchControlSchemes = true;
+        string scheme;
+        var devices = new List<InputDevice>();
 
         if (LocalGamepad.Seat == 0 && Keyboard.current != null && Keyboard.current.added)
         {
-            var devices = new List<InputDevice> { Keyboard.current };
+            scheme = "Keyboard&Mouse";
+            devices.Add(Keyboard.current);
             if (Mouse.current != null && Mouse.current.added) devices.Add(Mouse.current);
             if (pad != null && pad.added) devices.Add(pad);
-            input.SwitchCurrentControlScheme("Keyboard&Mouse", devices.ToArray());
         }
         else if (pad != null && pad.added)
         {
-            input.SwitchCurrentControlScheme("Gamepad", pad);
+            scheme = "Gamepad";
+            devices.Add(pad);
         }
         else
         {
             input.enabled = false;
             Debug.LogWarning($"[Input] seat={LocalGamepad.Seat} の入力デバイスが見つかりません", this);
+            return;
         }
+
+        // 前回の有効化に失敗していた場合は、デバイス解放後に初期化し直す。
+        if (input.enabled && !input.user.valid)
+            input.enabled = false;
+
+        input.defaultControlScheme = scheme;
+        input.enabled = true;
+
+        if (!input.user.valid)
+        {
+            input.enabled = false;
+            Debug.LogWarning($"[Input] seat={LocalGamepad.Seat} の入力ユーザーを作成できません。Title側や他のPlayerInputのデバイス割り当てを確認してください。", this);
+            return;
+        }
+
+        input.SwitchCurrentControlScheme(scheme, devices.ToArray());
     }
 
     #region ネットワーク経由での脱落・復活・移動制御

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Unity.Netcode;
 using Unity.Netcode.Components;
 using UnityEngine;
 
@@ -27,6 +28,8 @@ public class TitlePlayerPresentation : MonoBehaviour
     private readonly List<Canvas> canvasBuffer = new();
 
     private PlayerState localPlayer;
+    private NetworkSceneManager subscribedSceneManager;
+    private bool leavingTitle;
 
     private void OnEnable()
     {
@@ -39,6 +42,7 @@ public class TitlePlayerPresentation : MonoBehaviour
 
     private void Update()
     {
+        this.TrackSceneManager();
         this.RemoveDepartedPlayers();
 
         PlayerManager manager = PlayerManager.Instance;
@@ -98,6 +102,51 @@ public class TitlePlayerPresentation : MonoBehaviour
                 this.HideVisuals(state);
             }
         }
+    }
+
+    private void TrackSceneManager()
+    {
+        NetworkSceneManager sceneManager = NetworkManager.Singleton != null
+            ? NetworkManager.Singleton.SceneManager : null;
+
+        if (sceneManager == this.subscribedSceneManager)
+            return;
+
+        this.UnsubscribeSceneManager();
+        this.subscribedSceneManager = sceneManager;
+
+        if (sceneManager != null)
+            sceneManager.OnSceneEvent += this.HandleSceneEvent;
+    }
+
+    private void HandleSceneEvent(SceneEvent sceneEvent)
+    {
+        if (sceneEvent.SceneEventType != SceneEventType.Load
+            || sceneEvent.LoadSceneMode != UnityEngine.SceneManagement.LoadSceneMode.Single)
+            return;
+
+        // ロード開始後はUpdate/LateUpdateで展示位置へ戻さない。
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsServer
+            && PlayerManager.Instance != null)
+        {
+            foreach (PlayerController player in PlayerManager.Instance.AllPlayers)
+            {
+                if (player != null && player.IsSpawned)
+                    player.StopOrMovePlayer(false);
+            }
+        }
+
+        this.leavingTitle = true;
+        this.enabled = false;
+    }
+
+    private void UnsubscribeSceneManager()
+    {
+        if (this.subscribedSceneManager == null)
+            return;
+
+        this.subscribedSceneManager.OnSceneEvent -= this.HandleSceneEvent;
+        this.subscribedSceneManager = null;
     }
 
     /// <summary>Title側の入力処理から、フレームごとの回転角度を渡す。</summary>
@@ -192,7 +241,7 @@ public class TitlePlayerPresentation : MonoBehaviour
         state.appearance?.ResetTitleModelRotation();
 
         if (state.player != null)
-            state.player.SetTitleMode(state.previousTitleMode);
+            state.player.SetTitleMode(this.leavingTitle ? false : state.previousTitleMode);
     }
 
     private void RemoveDepartedPlayers()
@@ -216,6 +265,8 @@ public class TitlePlayerPresentation : MonoBehaviour
 
     private void OnDisable()
     {
+        this.UnsubscribeSceneManager();
+
         foreach (PlayerState state in this.players.Values)
         {
             this.RestorePlayer(state);

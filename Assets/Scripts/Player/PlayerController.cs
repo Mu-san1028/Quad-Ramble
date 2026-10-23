@@ -367,6 +367,7 @@ public class PlayerController : NetworkBehaviour
         controller.enabled = false;
         transform.SetPositionAndRotation(position, rotation);
         GetComponent<NetworkTransform>().Teleport(position, rotation, transform.localScale);
+        Debug.Log($"[RoundSpawn] Applied: ClientId={OwnerClientId}, Position={transform.position}", this);
         controller.enabled = true;
 
         // 照準もスポーン地点の向きに合わせる。

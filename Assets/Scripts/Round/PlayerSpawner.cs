@@ -17,6 +17,7 @@ public class PlayerSpawner : MonoBehaviour
 
         //　スポーンポイントは事前に設定され、　spawnIndexに基づいて選択される
         Transform spawnPoint = spawnPoints[spawnIndex];
+        Debug.Log($"[RoundSpawn] Scene={gameObject.scene.name}, ClientId={player.OwnerClientId}, Index={spawnIndex}, Position={spawnPoint.position}", this);
 
         // 前のラウンドのセーブポイントを持ち越さない
         SavePointRegistry.Clear(player);

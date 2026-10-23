@@ -86,6 +86,14 @@ public class SEAudio : MonoBehaviour
         }
     }
 
+    public void Play(AudioClip clip, float volume = 1f)
+    {
+        if (!this.seEnabled || this.source == null || clip == null)
+            return;
+
+        this.source.PlayOneShot(clip, Mathf.Clamp01(volume));
+    }
+
     private static bool ReadSEEnabled()
     {
         string[] args = Environment.GetCommandLineArgs();

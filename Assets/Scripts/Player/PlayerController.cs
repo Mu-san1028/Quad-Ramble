@@ -895,6 +895,38 @@ public class PlayerController : NetworkBehaviour
             this.RequestMeleeEffectServerRpc(ItemDatabase.Instance.GetKey(weapon));
     }
 
+    private void PlayWeaponUseSE(WeaponData weapon, Items weaponKey)
+    {
+        // 本人は即時再生し、RPCでは本人を除いて通知する。
+        SEAudio.Instance?.Play(weapon.useSE, weapon.useSEVolume);
+
+        if (this.IsSpawned && weapon.useSE != null)
+            this.RequestWeaponUseSEServerRpc(weaponKey);
+    }
+
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Owner)]
+    private void RequestWeaponUseSEServerRpc(Items weaponKey)
+    {
+        var round = RoundManager.Instance;
+        if (round == null || !round.IsSpawned || round.IsIntro || round.IsRoundOver
+            || round.CountdownRemaining > RoundManager.StartDisplayDuration)
+            return;
+
+        this.PlayWeaponSEClientRpc(weaponKey, false);
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void PlayWeaponSEClientRpc(Items weaponKey, bool hit)
+    {
+        if (!hit && this.IsOwner) return;
+
+        if (ItemDatabase.Instance.GetItem(weaponKey) is not WeaponData weapon)
+            return;
+
+        SEAudio.Instance?.Play(hit ? weapon.hitSE : weapon.useSE,
+            hit ? weapon.hitSEVolume : weapon.useSEVolume);
+    }
+
     private void PlayMeleeEffect(WeaponData weapon)
     {
         if (weapon.meleeEffectPrefab == null || this.IsTitleMode
@@ -941,6 +973,7 @@ public class PlayerController : NetworkBehaviour
         }
 
         Items weaponKey = ItemDatabase.Instance.GetKey(weaponData);
+        this.PlayWeaponUseSE(weaponData, weaponKey);
         var hits = weaponData.attackRange.GetHitTargets(transform.position, transform.rotation,
                                                         shootableLayers | breakableLayers,
                                                         this.RangeMultiplier);
@@ -972,6 +1005,7 @@ public class PlayerController : NetworkBehaviour
         }
 
         Items weaponKey = ItemDatabase.Instance.GetKey(weaponData);
+        this.PlayWeaponUseSE(weaponData, weaponKey);
         Vector3 startPos = ThrowOrigin;
         Vector3 throwDir = GetThrowDirection(weaponData.launchAngle);
         // まっすぐ飛ぶ武器は弾速がそのまま射程になるので、範囲強化をここに乗せる
@@ -988,13 +1022,18 @@ public class PlayerController : NetworkBehaviour
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Owner)]
     void SubmitShootServerRpc(Vector3 hitPoint, ulong targetId, Vector3 direction, Items weaponKey)
     {
-        PlayShootEffectClientRpc(hitPoint);
-        if (targetId == 0) return;
+        if (targetId == NetworkObjectId
+            || !NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(targetId, out var target)
+            || target.GetComponent<PlayerController>() == null)
+            return;
 
         var wd = ItemDatabase.Instance.GetItem(weaponKey) as WeaponData;
         float power = (wd != null ? wd.Power : 10f) * this.PowerMultiplier;
 
         this.ApplyKnockback(targetId, direction, power);
+
+        if (wd != null && wd.hitSE != null)
+            this.PlayWeaponSEClientRpc(weaponKey, true);
     }
 
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Owner)]
@@ -1039,14 +1078,6 @@ public class PlayerController : NetworkBehaviour
         }
     }
 
-    [Rpc(SendTo.ClientsAndHost)]
-    void PlayShootEffectClientRpc(Vector3 hitPoint)
-    {
-        if (IsOwner) return;
-        // 自分以外のプレイヤーの画面で、他人のキャラが銃を撃つ音や光を再生する
-        effects.PlayShoot(gameObject.name);
-    }
-
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Owner)]
     void ThrowProjectileServerRpc(Vector3 startPos, Vector3 initialVelocity, Items weaponKey)
     {
@@ -1063,7 +1094,7 @@ public class PlayerController : NetworkBehaviour
         // 飛行中に武器を切り替えても、発射した弾の効果を使う。
         SlowOnHit slowEffect = wd != null && wd.bulletPrefab != null
             ? wd.bulletPrefab.GetComponent<SlowOnHit>() : null;
-        StartCoroutine(FlyProjectile(projectileId, startPos, initialVelocity, lifetime, gravity, blastRadius, power, slowEffect));
+        StartCoroutine(FlyProjectile(projectileId, startPos, initialVelocity, lifetime, gravity, blastRadius, power, slowEffect, weaponKey));
     }
 
     private void UpdateTrajectoryPreview()
@@ -1106,7 +1137,7 @@ public class PlayerController : NetworkBehaviour
     }
 
     private IEnumerator FlyProjectile(int projectileId, Vector3 start, Vector3 initialVelocity,
-        float lifetime, float gravity, float radius, float power, SlowOnHit slowEffect)
+        float lifetime, float gravity, float radius, float power, SlowOnHit slowEffect, Items weaponKey)
     {
         Vector3 center = start;
         float elapsed = 0f;
@@ -1129,22 +1160,25 @@ public class PlayerController : NetworkBehaviour
                 Vector3 next = TrajectorySimulator.PositionAtTime(start, initialVelocity, gravity, nextTime);
                 if (TrajectorySimulator.TryGetHit(center, next, settings, out var hit))
                 {
-                    this.ExplodeProjectile(projectileId, hit.point, radius, power, slowEffect);
+                    this.ExplodeProjectile(projectileId, hit.point, radius, power, slowEffect, weaponKey);
                     yield break;
                 }
                 center = next;
                 elapsed = nextTime;
             }
         }
-        this.ExplodeProjectile(projectileId, center, radius, power, slowEffect);
+        this.ExplodeProjectile(projectileId, center, radius, power, slowEffect, weaponKey);
     }
 
-    private void ExplodeProjectile(int projectileId, Vector3 center, float radius, float power, SlowOnHit slowEffect)
+    private void ExplodeProjectile(int projectileId, Vector3 center, float radius, float power, SlowOnHit slowEffect, Items weaponKey)
     {
         if (!IsServer) return;
 
         // 演出は全員に
         FinishProjectileClientRpc(projectileId, center, radius, true);
+
+        var weapon = ItemDatabase.Instance.GetItem(weaponKey) as WeaponData;
+        bool hitPlayer = false;
 
         // 判定はサーバーだけが行う
         var hits = Physics.OverlapSphere(center, radius, shootableLayers | breakableLayers);
@@ -1162,11 +1196,20 @@ public class PlayerController : NetworkBehaviour
 
             if (col.GetComponentInParent<PlayerController>() == null) continue;
 
+            hitPlayer = true;
+
             if (slowEffect != null)
                 slowEffect.Apply(target.GetComponent<PlayerStatus>());
 
             Vector3 direction = (col.transform.position - center).normalized;
             this.ApplyKnockback(target.NetworkObjectId, direction, power);
+        }
+
+        // 敵が複数いても、爆発1回につきSEは1回だけ通知する。
+        if (weapon != null && weapon.hitSE != null
+            && (weapon.playExplosionSEOnMiss || hitPlayer))
+        {
+            this.PlayWeaponSEClientRpc(weaponKey, true);
         }
     }
 

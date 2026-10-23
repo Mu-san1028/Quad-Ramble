@@ -21,7 +21,9 @@ public class PlayerController : NetworkBehaviour
     [SerializeField] private float deceleration = 10f; // ブレーキ力
     [SerializeField] private float aimMoveSpeedMultiplier = 0.4f;
 
-    private float CurrentMoveSpeed  => (moveSpeed + (status != null ? status.SpeedBonus : 0f)) * (isAiming ? aimMoveSpeedMultiplier : 1f);
+    private float CurrentMoveSpeed => (moveSpeed + (status != null ? status.SpeedBonus : 0f))
+        * (status != null ? status.SlowSpeedMultiplier : 1f)
+        * (isAiming ? aimMoveSpeedMultiplier : 1f);
     private float CurrentJumpHeight => jumpHeight + (status != null ? status.JumpBonus  : 0f);
     private float CurrentTurnSmoothTime => Mathf.Max(0.02f, turnSmoothTime);
 
@@ -1058,7 +1060,10 @@ public class PlayerController : NetworkBehaviour
         int projectileId = this.nextProjectileId++;
         float lifetime = trajectoryMaxSteps * TrajectorySimulator.StepDuration;
         ShowProjectileClientRpc(projectileId, startPos, initialVelocity, lifetime, gravity, weaponKey);
-        StartCoroutine(FlyProjectile(projectileId, startPos, initialVelocity, lifetime, gravity, blastRadius, power));
+        // 飛行中に武器を切り替えても、発射した弾の効果を使う。
+        SlowOnHit slowEffect = wd != null && wd.bulletPrefab != null
+            ? wd.bulletPrefab.GetComponent<SlowOnHit>() : null;
+        StartCoroutine(FlyProjectile(projectileId, startPos, initialVelocity, lifetime, gravity, blastRadius, power, slowEffect));
     }
 
     private void UpdateTrajectoryPreview()
@@ -1101,7 +1106,7 @@ public class PlayerController : NetworkBehaviour
     }
 
     private IEnumerator FlyProjectile(int projectileId, Vector3 start, Vector3 initialVelocity,
-        float lifetime, float gravity, float radius, float power)
+        float lifetime, float gravity, float radius, float power, SlowOnHit slowEffect)
     {
         Vector3 center = start;
         float elapsed = 0f;
@@ -1124,18 +1129,20 @@ public class PlayerController : NetworkBehaviour
                 Vector3 next = TrajectorySimulator.PositionAtTime(start, initialVelocity, gravity, nextTime);
                 if (TrajectorySimulator.TryGetHit(center, next, settings, out var hit))
                 {
-                    this.ExplodeProjectile(projectileId, hit.point, radius, power);
+                    this.ExplodeProjectile(projectileId, hit.point, radius, power, slowEffect);
                     yield break;
                 }
                 center = next;
                 elapsed = nextTime;
             }
         }
-        this.ExplodeProjectile(projectileId, center, radius, power);
+        this.ExplodeProjectile(projectileId, center, radius, power, slowEffect);
     }
 
-    private void ExplodeProjectile(int projectileId, Vector3 center, float radius, float power)
+    private void ExplodeProjectile(int projectileId, Vector3 center, float radius, float power, SlowOnHit slowEffect)
     {
+        if (!IsServer) return;
+
         // 演出は全員に
         FinishProjectileClientRpc(projectileId, center, radius, true);
 
@@ -1154,6 +1161,9 @@ public class PlayerController : NetworkBehaviour
             if (block != null) { block.AddDamage(power); continue; }   // ここはサーバー実行なので直接呼べる
 
             if (col.GetComponentInParent<PlayerController>() == null) continue;
+
+            if (slowEffect != null)
+                slowEffect.Apply(target.GetComponent<PlayerStatus>());
 
             Vector3 direction = (col.transform.position - center).normalized;
             this.ApplyKnockback(target.NetworkObjectId, direction, power);

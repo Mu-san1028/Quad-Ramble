@@ -34,6 +34,11 @@ public class PlayerStatus : NetworkBehaviour
     private readonly NetworkVariable<StatBlock> bonuses = new ();
     private readonly NetworkVariable<StackBlock> stackCounts = new ();
 
+    private readonly NetworkVariable<float> slowSpeedMultiplier = new(1f);
+    private float slowRemaining;
+
+    public float SlowSpeedMultiplier => this.slowSpeedMultiplier.Value;
+
     public float SpeedBonus => this.bonuses.Value.Speed;
     public float JumpBonus  => this.bonuses.Value.Jump;
 
@@ -60,6 +65,13 @@ public class PlayerStatus : NetworkBehaviour
     {
         if (!IsServer) return;
 
+        if (this.slowRemaining > 0f)
+        {
+            this.slowRemaining = Mathf.Max(0f, this.slowRemaining - Time.deltaTime);
+            if (this.slowRemaining <= 0f)
+                this.slowSpeedMultiplier.Value = 1f;
+        }
+
         bool changed = false;
         for (int i = this.effects.Count - 1; i >= 0; i--)
         {
@@ -75,6 +87,18 @@ public class PlayerStatus : NetworkBehaviour
         }
 
         if (changed) this.Recalculate();
+    }
+
+    /// <summary>重ね掛けせず、最後に命中した減速の倍率と持続時間に更新する。</summary>
+    public void ApplySlow(float speedMultiplier, float duration)
+    {
+        if (!IsServer || !IsSpawned || duration <= 0f || speedMultiplier >= 1f
+            || float.IsNaN(duration) || float.IsInfinity(duration)
+            || float.IsNaN(speedMultiplier) || float.IsInfinity(speedMultiplier))
+            return;
+
+        this.slowSpeedMultiplier.Value = Mathf.Clamp(speedMultiplier, 0.1f, 1f);
+        this.slowRemaining = duration;
     }
 
     /// <summary>一時効果アイテム</summary>
@@ -159,6 +183,8 @@ public class PlayerStatus : NetworkBehaviour
         if (!IsServer) return;
 
         this.effects.Clear();
+        this.slowRemaining = 0f;
+        this.slowSpeedMultiplier.Value = 1f;
         this.stackCounts.Value = default;
         this.fatigue.Value = 0f;
         this.roundScore.Value = 0;

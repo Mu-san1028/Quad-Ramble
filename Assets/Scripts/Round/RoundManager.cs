@@ -51,6 +51,12 @@ public class RoundManager : NetworkBehaviour
     public bool IsIntro => !this.IsReady || this.introRemaining.Value > 0f;
     private readonly WaitForSeconds beforeSceneTransition = new (3);
 
+    public RoundScoreEntry[] RoundResults { get; private set; }
+    public double ResultStartTime { get; private set; }
+    public Vector4 ResultTimings { get; private set; }
+    public bool HideFinishForResults => this.RoundResults != null
+        && NetworkManager.ServerTime.Time >= this.ResultStartTime + this.ResultTimings.x;
+
     // サーバーだけが書き込み、全員が読む
     private readonly NetworkVariable<float> remainingTime = new ();
     private readonly NetworkVariable<float> countdownRemaining = new ();
@@ -204,15 +210,65 @@ public class RoundManager : NetworkBehaviour
         }
 
         GameManager.Instance.SetState(GameState.Countdown);
+        var results = new List<RoundScoreEntry>();
+        var roster = ConnectionContainer.Instance;
+        foreach (var player in PlayerManager.Instance.AllPlayers)
+        {
+            if (player == null) continue;
+            var connection = roster != null ? roster.GetConnection(player.OwnerClientId) : null;
+            if (connection == null) continue;
+
+            results.Add(new RoundScoreEntry
+            {
+                ClientId = connection.ClientId,
+                PlayerId = connection.Id,
+                Before = connection.Score
+            });
+        }
+
         if (this.scoring != null) this.scoring.AwardPoints();
         else this.AwardPoints();
+
+        for (int i = 0; i < results.Count; i++)
+        {
+            var entry = results[i];
+            entry.After = roster.GetConnection(entry.ClientId)?.Score ?? entry.Before;
+            results[i] = entry;
+        }
+
+        var resultUI = FindAnyObjectByType<RoundResultUI>();
+        double resultEndTime = 0;
+        if (resultUI != null && resultUI.isActiveAndEnabled && results.Count > 0)
+        {
+            Vector4 timings = resultUI.Timings;
+            double startTime = NetworkManager.ServerTime.Time + 0.2;
+            resultEndTime = startTime + timings.x + timings.y + timings.z + timings.w + resultUI.HoldDuration;
+            this.ShowRoundResultsRpc(results.ToArray(), startTime, timings);
+        }
+
         ConnectionContainer.Instance?.BroadcastScores();
         Debug.Log(message);
 
-        yield return this.beforeSceneTransition;
+        if (resultEndTime > 0)
+        {
+            while (IsSpawned && NetworkManager.ServerTime.Time < resultEndTime)
+                yield return null;
+        }
+        else
+        {
+            yield return this.beforeSceneTransition;
+        }
 
-        if (!IsServer) yield break;
+        if (!IsServer || !IsSpawned) yield break;
         GameManager.Instance.LoadNextScene();
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void ShowRoundResultsRpc(RoundScoreEntry[] entries, double startTime, Vector4 timings)
+    {
+        this.RoundResults = entries;
+        this.ResultStartTime = startTime;
+        this.ResultTimings = timings;
     }
 
     private void AwardPoints()

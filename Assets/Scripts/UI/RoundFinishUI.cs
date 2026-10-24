@@ -34,7 +34,7 @@ public sealed class RoundFinishUI : MonoBehaviour
         if (!panel || !finishText) return;
 
         var round = RoundManager.Instance;
-        if (round == null || !round.IsSpawned || !round.IsRoundOver)
+        if (round == null || !round.IsSpawned || !round.IsRoundOver || round.HideFinishForResults)
         {
             Hide();
             return;

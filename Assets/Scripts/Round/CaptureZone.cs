@@ -21,15 +21,33 @@ public class CaptureZone : NetworkBehaviour
     private Collider[] hits = new Collider[16];
     private readonly HashSet<ulong> seen = new();
     private readonly CaptureZoneScoreClock scoreClock = new();
-    private CaptureZoneDirector director;
+    [Header("エリア切り替え")]
+    [Tooltip("指定した場合、管理者の初期化・同期前は閉鎖する。未指定は常時有効エリア用")]
+    [SerializeField] private CaptureZoneDirector director;
     private bool scheduled;
     private float previousMultiplier;
 
     public CaptureZoneState State => snapshot.Value.State;
     public ulong OccupantClientId => snapshot.Value.Owner;
-    public float ScoreMultiplier => scheduled ? (director ? director.MultiplierFor(this) : 0f) : 1f;
+    public float ScoreMultiplier => director ? director.MultiplierFor(this) : (scheduled ? 0f : 1f);
     public bool IsAreaActive => ScoreMultiplier > 0f;
     public event System.Action<CaptureZoneSnapshot> StateChanged;
+    public static event System.Action<CaptureZone, ulong> PointsAwarded;
+    public bool IsScoring => IsSpawned && isActiveAndEnabled && IsAreaActive
+        && pointsPerSecond > 0f && State == CaptureZoneState.Occupied;
+
+    private void Awake()
+    {
+        scheduled = director != null;
+        BindVisual();
+    }
+
+    private void BindVisual()
+    {
+        if (!visual) visual = GetComponent<CaptureZoneVisual>();
+        if (!visual) visual = gameObject.AddComponent<CaptureZoneVisual>();
+        visual.Bind(this, zoneRenderer, neutralColor, capturedColor);
+    }
 
     public bool RegisterDirector(CaptureZoneDirector source)
     {
@@ -49,9 +67,7 @@ public class CaptureZone : NetworkBehaviour
 
     public override void OnNetworkSpawn()
     {
-        if (!visual) visual = GetComponent<CaptureZoneVisual>();
-        if (!visual) visual = gameObject.AddComponent<CaptureZoneVisual>();
-        visual.Bind(this, zoneRenderer, neutralColor, capturedColor);
+        BindVisual();
         scoreClock.Reset();
         snapshot.OnValueChanged += OnSnapshotChanged;
         if (IsServer) snapshot.Value = new CaptureZoneSnapshot(CaptureZoneState.Neutral);
@@ -89,7 +105,17 @@ public class CaptureZone : NetworkBehaviour
         PlayerStatus occupant = FindOccupant(out CaptureZoneSnapshot next);
         snapshot.Value = next;
         int points = scoreClock.Step(next.State == CaptureZoneState.Occupied, next.Owner, pointsPerSecond * multiplier, Time.deltaTime);
-        if (occupant && points > 0) occupant.AddRoundScore(points);
+        if (occupant && points > 0)
+        {
+            occupant.AddRoundScore(points);
+            NotifyPointsAwardedClientRpc(next.Owner);
+        }
+    }
+
+    [ClientRpc]
+    private void NotifyPointsAwardedClientRpc(ulong clientId)
+    {
+        PointsAwarded?.Invoke(this, clientId);
     }
 
     private void OnDisable()

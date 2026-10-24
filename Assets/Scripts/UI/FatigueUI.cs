@@ -11,6 +11,7 @@ public class FatigueUI : MonoBehaviour
         public TextMeshProUGUI label;
         public TextMeshProUGUI value;   // 疲労の数値
         public Image icon;
+        public Image fatigueIcon;
         public TextMeshProUGUI rank;
         public TextMeshProUGUI points;
         public TextMeshProUGUI earnedPoints;

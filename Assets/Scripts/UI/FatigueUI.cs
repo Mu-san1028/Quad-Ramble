@@ -17,8 +17,12 @@ public class FatigueUI : MonoBehaviour
         public Image[] frame;
         public Image playerBadge;
         public FatigueWaveUI wave;
+        public RectTransform shakeVisual;
 
         [System.NonSerialized] public PlayerController boundPlayer;
+        [System.NonSerialized] public float previousFatigue;
+        [System.NonSerialized] public float shakeRemaining;
+        [System.NonSerialized] public float shakePhase;
     }
 
     private const int SelfIndex = 0;
@@ -57,10 +61,19 @@ public class FatigueUI : MonoBehaviour
     [SerializeField] private RankPalette verdigris = new RankPalette(
         new Color(0.59f, 0.95f, 0.91f), new Color(0.12f, 0.43f, 0.49f));
 
+    [Header("被弾時の揺れ（Canvas上の距離）")]
+    [SerializeField, Min(0f)] private float shakeDuration = 0.25f;
+    [SerializeField] private Vector2 shakeStrength = new(8f, 3f);
+    [SerializeField, Min(0f)] private float shakeFrequency = 24f;
+
     private void OnEnable()
     {
         foreach (var slot in this.slots)
-            if (slot != null) slot.boundPlayer = null;
+        {
+            if (slot == null) continue;
+            slot.boundPlayer = null;
+            ResetShake(slot);
+        }
     }
 
     private void Awake()
@@ -132,6 +145,7 @@ public class FatigueUI : MonoBehaviour
     {
         this.RefreshSlots();
         this.presentingResults = true;
+        this.ResetAllShakes();
     }
 
     public void EndResults()
@@ -158,6 +172,7 @@ public class FatigueUI : MonoBehaviour
         if (!active)
         {
             slot.boundPlayer = null;
+            ResetShake(slot);
             return;
         }
 
@@ -167,6 +182,13 @@ public class FatigueUI : MonoBehaviour
         var connection = roster != null ? roster.GetConnection(player.OwnerClientId) : null;
         bool reset = slot.boundPlayer != player;
         slot.boundPlayer = player;
+
+        if (reset || fatigue < slot.previousFatigue)
+            ResetShake(slot);
+        else if (fatigue > slot.previousFatigue && !player.IsEliminated)
+            slot.shakeRemaining = Mathf.Max(0f, this.shakeDuration);
+
+        slot.previousFatigue = fatigue;
 
         if (slot.label != null)
             slot.label.text = connection != null ? $"{connection.Id + 1}P" : "--";
@@ -188,6 +210,20 @@ public class FatigueUI : MonoBehaviour
             ApplyRankColor(slot.rank, rank);
         }
 
+        this.ApplyPlayerColor(slot, connection);
+
+        if (slot.wave != null) slot.wave.SetFatigue(fatigue, reset);
+    }
+
+    public void RestorePlayerColor(SlotView slot)
+    {
+        if (slot == null || slot.boundPlayer == null) return;
+        var connection = ConnectionContainer.Instance?.GetConnection(slot.boundPlayer.OwnerClientId);
+        this.ApplyPlayerColor(slot, connection);
+    }
+
+    private void ApplyPlayerColor(SlotView slot, Connection connection)
+    {
         Color color = connection != null && this.playerColors != null
             && connection.Id < (ulong)this.playerColors.Length
             ? this.playerColors[(int)connection.Id] : Color.gray;
@@ -198,8 +234,57 @@ public class FatigueUI : MonoBehaviour
             foreach (Image edge in slot.frame)
                 if (edge != null) edge.color = color;
         }
+    }
 
-        if (slot.wave != null) slot.wave.SetFatigue(fatigue, reset);
+    private void LateUpdate()
+    {
+        var round = RoundManager.Instance;
+        if (this.presentingResults || (round != null && (round.IsRoundOver || round.RoundResults != null)))
+        {
+            this.ResetAllShakes();
+            return;
+        }
+
+        foreach (var slot in this.slots)
+        {
+            if (slot == null || slot.shakeVisual == null) continue;
+            if (slot.boundPlayer != null && slot.boundPlayer.IsEliminated)
+            {
+                ResetShake(slot);
+                continue;
+            }
+            if (slot.shakeRemaining <= 0f || this.shakeDuration <= 0f)
+            {
+                ResetShake(slot);
+                continue;
+            }
+
+            float strength = Mathf.Clamp01(slot.shakeRemaining / this.shakeDuration);
+            slot.shakePhase = Mathf.Repeat(slot.shakePhase
+                + Time.unscaledDeltaTime * Mathf.Max(0f, this.shakeFrequency) * Mathf.PI * 2f, Mathf.PI * 20f);
+            slot.shakeVisual.anchoredPosition = new Vector2(
+                Mathf.Sin(slot.shakePhase) * this.shakeStrength.x,
+                Mathf.Sin(slot.shakePhase * 0.7f) * this.shakeStrength.y) * strength * strength;
+            slot.shakeRemaining = Mathf.Max(0f, slot.shakeRemaining - Time.unscaledDeltaTime);
+        }
+    }
+
+    private static void ResetShake(SlotView slot)
+    {
+        slot.shakeRemaining = 0f;
+        slot.shakePhase = 0f;
+        if (slot.shakeVisual != null) slot.shakeVisual.anchoredPosition = Vector2.zero;
+    }
+
+    private void ResetAllShakes()
+    {
+        foreach (var slot in this.slots)
+            if (slot != null) ResetShake(slot);
+    }
+
+    private void OnDisable()
+    {
+        this.ResetAllShakes();
     }
 
     private void ApplyRankColor(TextMeshProUGUI text, int rank)

@@ -55,7 +55,7 @@ public class DropOutSensor : MonoBehaviour
         }
 
         if (PlayerManager.Instance == null) return;
-        PlayerManager.Instance.DropOut(player);
         player.Eliminate();
+        PlayerManager.Instance.DropOut(player);
     }
 }

@@ -64,7 +64,11 @@ public class PlayerController : NetworkBehaviour
     private PlayerItem playerItem;
     private PlayerStatus status;
 
-    private bool isEliminated = false;
+    private readonly NetworkVariable<bool> eliminated = new(false);
+    public bool IsEliminated => this.eliminated.Value;
+    private bool isEliminated => this.IsEliminated;
+    private readonly Dictionary<Renderer, bool> eliminatedRenderers = new();
+    private readonly Dictionary<Collider, bool> eliminatedColliders = new();
     private bool controlsStopped;
     private Quaternion teleportRotation;
     private bool pendingStartFacing;
@@ -146,6 +150,7 @@ public class PlayerController : NetworkBehaviour
 
     private void Awake()
     {
+        this.controller = GetComponent<CharacterController>();
         // PlayerInputのOnEnableより先に止め、所有者とシーンが確定してから有効化する。
         if (!this.allowOfflineControl)
             GetComponent<PlayerInput>().enabled = false;
@@ -154,6 +159,8 @@ public class PlayerController : NetworkBehaviour
 
     public override void OnNetworkSpawn()
     {
+        this.eliminated.OnValueChanged += this.HandleEliminatedChanged;
+        this.ApplyEliminatedState(this.IsEliminated);
         // TitlePlayerPresentation.Updateを待たず、生成時点で入力の担当を確定する。
         this.IsTitleMode = FindAnyObjectByType<TitleInputController>() != null;
 
@@ -222,6 +229,7 @@ public class PlayerController : NetworkBehaviour
 
     public override void OnNetworkDespawn()
     {
+        this.eliminated.OnValueChanged -= this.HandleEliminatedChanged;
         this.effects.ClearProjectiles();
         PlayerManager.Instance?.RemovePlayer(this);
     }
@@ -301,19 +309,55 @@ public class PlayerController : NetworkBehaviour
     /// <summary>脱落をクライアントに反映させる</summary>
     public void Eliminate()
     {
-        if (!IsServer) return;
-        EliminateClientRpc();
+        if (!IsServer || this.IsEliminated) return;
+        this.eliminated.Value = true;
     }
 
-    [Rpc(SendTo.ClientsAndHost)]
-    private void EliminateClientRpc()
+    private void HandleEliminatedChanged(bool previous, bool current)
     {
-        isEliminated = true;
-        isAiming = false;
-        Debug.Log($"【{gameObject.name}】が脱落しました！");
-        controller.enabled = false;
-        // キャラクターを非表示にする
-        gameObject.GetComponentInChildren<Renderer>().enabled = false;
+        this.ApplyEliminatedState(current);
+    }
+
+    private void ApplyEliminatedState(bool hidden)
+    {
+        if (hidden)
+        {
+            this.isAiming = false;
+            this.moveInput = this.lookInput = Vector2.zero;
+            this.velocity = this.impact = Vector3.zero;
+            if (this.windupRoutine != null)
+            {
+                StopCoroutine(this.windupRoutine);
+                this.windupRoutine = null;
+            }
+            if (this.preview != null) this.preview.Hide();
+
+            foreach (var renderer in GetComponentsInChildren<Renderer>(true))
+            {
+                if (!this.eliminatedRenderers.ContainsKey(renderer))
+                    this.eliminatedRenderers.Add(renderer, renderer.enabled);
+                renderer.enabled = false;
+            }
+            foreach (var collider in GetComponentsInChildren<Collider>(true))
+            {
+                if (!this.eliminatedColliders.ContainsKey(collider))
+                    this.eliminatedColliders.Add(collider, collider.enabled);
+                collider.enabled = false;
+            }
+        }
+        else
+        {
+            foreach (var entry in this.eliminatedRenderers)
+                if (entry.Key != null) entry.Key.enabled = entry.Value;
+            foreach (var entry in this.eliminatedColliders)
+                if (entry.Key != null) entry.Key.enabled = entry.Value;
+            this.eliminatedRenderers.Clear();
+            this.eliminatedColliders.Clear();
+        }
+
+        GetComponentInChildren<PlayerAppearance>(true)?.SetEliminated(hidden);
+        if (this.controller != null)
+            this.controller.enabled = !hidden && !this.controlsStopped && !this.IsTitleMode;
     }
 
     /// <summary>移動の可否をクライアントに反映させる</summary>
@@ -362,16 +406,7 @@ public class PlayerController : NetworkBehaviour
     public void Revive()
     {
         if (!IsServer) return;
-        ReviveClientRpc();
-    }
-
-    [Rpc(SendTo.ClientsAndHost)]
-    private void ReviveClientRpc()
-    {
-        isEliminated = false;
-        controller.enabled = true;
-        // キャラクターを表示する
-        gameObject.GetComponentInChildren<Renderer>().enabled = true;
+        this.eliminated.Value = false;
     }
 
     /// <summary>テレポートをクライアントに反映させる</summary>
@@ -401,7 +436,7 @@ public class PlayerController : NetworkBehaviour
         transform.SetPositionAndRotation(position, rotation);
         GetComponent<NetworkTransform>().Teleport(position, rotation, transform.localScale);
         Debug.Log($"[RoundSpawn] Applied: ClientId={OwnerClientId}, Position={transform.position}", this);
-        controller.enabled = true;
+        controller.enabled = !this.IsEliminated && !this.controlsStopped && !this.IsTitleMode;
 
         // 照準もスポーン地点の向きに合わせる。
         // これが無いと、体が次のフレームで前ラウンドの aimYaw に向き直ってしまう

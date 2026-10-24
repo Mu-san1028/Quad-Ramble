@@ -65,7 +65,7 @@ public class BombSensorField : MonoBehaviour
     {
         if (player == null || PlayerManager.Instance == null) return;
 
-        PlayerManager.Instance.DropOut(player);
         player.Eliminate();
+        PlayerManager.Instance.DropOut(player);
     }
 }

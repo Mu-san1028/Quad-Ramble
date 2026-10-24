@@ -9,7 +9,7 @@ public sealed class RoundResultUI : MonoBehaviour
     [Header("演出時間（ホストの設定を全端末で使用）")]
     [SerializeField, Min(0f)] private float finishDelay = 0.7f;
     [SerializeField, Min(0.01f)] private float gatherDuration = 0.55f;
-    [SerializeField, Min(0.01f)] private float countDuration = 1f;
+    [SerializeField, Min(0.01f)] private float countDuration = 1.4f;
     [SerializeField, Min(0.01f)] private float reorderDuration = 0.7f;
     [SerializeField, Min(0f)] private float holdDuration = 1.5f;
     [Header("中央の配置（Canvas上のサイズ）")]
@@ -17,6 +17,10 @@ public sealed class RoundResultUI : MonoBehaviour
     [SerializeField] private Vector2 centerOffset = Vector2.zero;
     [SerializeField, Min(0f)] private float rowGap = 16f;
     [SerializeField, Min(0f)] private float passingOffset = 100f;
+
+    [Header("右側から加算するポイント表示")]
+    [SerializeField, Min(0f)] private float gainGap = 24f;
+    [SerializeField, Min(0f)] private float gainEntryDistance = 80f;
 
     public Vector4 Timings => new(Mathf.Max(0f, this.finishDelay),
         Mathf.Max(0.01f, this.gatherDuration), Mathf.Max(0.01f, this.countDuration),
@@ -39,6 +43,7 @@ public sealed class RoundResultUI : MonoBehaviour
     private bool prepared;
     private Vector2 resultSize;
     private float spacing;
+    private float resultScale = 1f;
 
     private void Awake()
     {
@@ -63,7 +68,8 @@ public sealed class RoundResultUI : MonoBehaviour
         float elapsed = (float)(NetworkManager.Singleton.ServerTime.Time - current.ResultStartTime);
         Vector4 timing = current.ResultTimings;
         float gather = Progress(elapsed - timing.x, timing.y);
-        float count = Progress(elapsed - timing.x - timing.y, timing.z);
+        float gainTime = Mathf.Clamp01((elapsed - timing.x - timing.y) / Mathf.Max(0.01f, timing.z));
+        float count = Progress(gainTime - 0.5f, 0.5f);
         float reorder = Progress(elapsed - timing.x - timing.y - timing.z, timing.w);
         bool showGain = elapsed >= timing.x + timing.y;
 
@@ -79,7 +85,7 @@ public sealed class RoundResultUI : MonoBehaviour
                 position = Vector2.Lerp(oldPosition, newPosition, reorder);
                 // 上昇する枠と下降する枠を左右へ分け、交差を追いやすくする。
                 int direction = System.Math.Sign(card.oldIndex - card.newIndex);
-                position.x += direction * Mathf.Sin(reorder * Mathf.PI) * this.passingOffset;
+                position.x += direction * Mathf.Sin(reorder * Mathf.PI) * this.passingOffset * this.resultScale;
             }
 
             card.rect.anchoredPosition = position;
@@ -92,11 +98,37 @@ public sealed class RoundResultUI : MonoBehaviour
 
             if (card.slot.earnedPoints != null)
             {
-                card.slot.earnedPoints.gameObject.SetActive(showGain);
-                float pulse = showGain ? 1f + 0.15f * Mathf.Sin(count * Mathf.PI) : 1f;
-                card.slot.earnedPoints.rectTransform.localScale = Vector3.one * pulse;
+                this.AnimateGain(card, gainTime, showGain && gainTime < 1f);
             }
         }
+    }
+
+    private void AnimateGain(Card card, float time, bool visible)
+    {
+        var text = card.slot.earnedPoints;
+        text.gameObject.SetActive(visible);
+        if (!visible) return;
+
+        var rect = text.rectTransform;
+        var parent = rect.parent as RectTransform;
+        if (parent == null) return;
+
+        // 右辺中央アンカーから、累計ポイントの中央までの座標を求める。
+        Vector2 target = Vector2.zero;
+        if (card.slot.points != null)
+        {
+            var points = card.slot.points.rectTransform;
+            target = (Vector2)parent.InverseTransformPoint(points.TransformPoint(points.rect.center))
+                - new Vector2(parent.rect.xMax, parent.rect.center.y);
+        }
+
+        float enter = Progress(time, 0.25f);
+        float absorb = Progress(time - 0.5f, 0.5f);
+        Vector2 outside = new Vector2((this.gainGap + rect.rect.width * 0.5f) * this.resultScale, target.y);
+        Vector2 start = outside + Vector2.right * this.gainEntryDistance * this.resultScale;
+        rect.anchoredPosition = Vector2.Lerp(Vector2.Lerp(start, outside, enter), target, absorb);
+        rect.localScale = Vector3.one * this.resultScale * Mathf.Lerp(1f, 0.55f, absorb);
+        text.alpha = enter * (1f - Progress(time - 0.8f, 0.2f));
     }
 
     private void Prepare()
@@ -156,9 +188,15 @@ public sealed class RoundResultUI : MonoBehaviour
         var area = (RectTransform)this.cards[0].rect.parent;
         float gap = Mathf.Max(0f, this.rowGap);
         float height = Mathf.Max(1f, this.cardSize.y) * this.cards.Count + gap * (this.cards.Count - 1);
+        float gainWidth = 0f;
+        foreach (var card in this.cards)
+            if (card.slot.earnedPoints != null)
+                gainWidth = Mathf.Max(gainWidth, card.slot.earnedPoints.rectTransform.rect.width);
+        float sideRoom = Mathf.Max(this.passingOffset, gainWidth + this.gainGap + this.gainEntryDistance);
         float scale = Mathf.Clamp01(Mathf.Min(
-            area.rect.width * 0.9f / Mathf.Max(1f, this.cardSize.x + 2f * this.passingOffset),
+            area.rect.width * 0.9f / Mathf.Max(1f, this.cardSize.x + 2f * sideRoom),
             area.rect.height * 0.9f / height));
+        this.resultScale = scale;
         this.resultSize = new Vector2(Mathf.Max(1f, this.cardSize.x), Mathf.Max(1f, this.cardSize.y)) * scale;
         this.spacing = this.resultSize.y + gap * scale;
         this.prepared = true;
@@ -198,6 +236,8 @@ public sealed class RoundResultUI : MonoBehaviour
             {
                 card.slot.earnedPoints.gameObject.SetActive(false);
                 card.slot.earnedPoints.rectTransform.localScale = Vector3.one;
+                card.slot.earnedPoints.rectTransform.anchoredPosition = Vector2.zero;
+                card.slot.earnedPoints.alpha = 1f;
             }
         }
 

@@ -18,7 +18,8 @@ public enum SEType
     WeaponSelect,
     RoundFinish,
     RoundPointAdd,
-    TerritoryPointGain
+    TerritoryPointGain,
+    BlockBreak
 }
 
 public class SEAudio : MonoBehaviour

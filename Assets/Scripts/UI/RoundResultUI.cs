@@ -41,6 +41,7 @@ public sealed class RoundResultUI : MonoBehaviour
     private RoundManager round;
     private readonly List<Card> cards = new();
     private bool prepared;
+    private bool pointAddSoundHandled;
     private Vector2 resultSize;
     private float spacing;
     private float resultScale = 1f;
@@ -73,6 +74,8 @@ public sealed class RoundResultUI : MonoBehaviour
         float reorder = Progress(elapsed - timing.x - timing.y - timing.z, timing.w);
         bool showGain = elapsed >= timing.x + timing.y;
 
+        this.PlayPointAddSound(elapsed, timing);
+
         foreach (var card in this.cards)
         {
             if (card.rect == null) continue;
@@ -100,6 +103,26 @@ public sealed class RoundResultUI : MonoBehaviour
             {
                 this.AnimateGain(card, gainTime, showGain && gainTime < 1f);
             }
+        }
+    }
+
+    private void PlayPointAddSound(float elapsed, Vector4 timing)
+    {
+        // 右側の獲得ポイントが吸収され、累計のカウントアップが始まる瞬間。
+        float start = timing.x + timing.y + timing.z * 0.5f;
+        if (this.pointAddSoundHandled || elapsed < start) return;
+
+        this.pointAddSoundHandled = true;
+
+        // 途中参加などで加算演出が終了している場合は、遅れて再生しない。
+        if (elapsed >= timing.x + timing.y + timing.z) return;
+
+        foreach (var card in this.cards)
+        {
+            if (card.rect == null || card.score.After <= card.score.Before) continue;
+
+            SEAudio.Instance?.Play(SEType.RoundPointAdd);
+            break; // 4人分を同時に重ねず、演出全体で1回だけ再生する。
         }
     }
 
@@ -243,6 +266,7 @@ public sealed class RoundResultUI : MonoBehaviour
 
         this.cards.Clear();
         this.prepared = false;
+        this.pointAddSoundHandled = false;
         this.round = null;
         if (this.hud != null) this.hud.EndResults();
     }

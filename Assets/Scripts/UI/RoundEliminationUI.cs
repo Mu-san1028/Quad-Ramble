@@ -100,6 +100,7 @@ public sealed class RoundEliminationUI : MonoBehaviour
                 // 波は非表示にして停止。復活時は元の疲労表示に戻す。
                 if (slot.wave != null) slot.wave.gameObject.SetActive(!grey);
                 bool showNumbers = !grey || results;
+                if (slot.fatigueIcon != null) slot.fatigueIcon.gameObject.SetActive(showNumbers);
                 if (slot.value != null) slot.value.gameObject.SetActive(showNumbers);
                 if (slot.rank != null) slot.rank.gameObject.SetActive(showNumbers);
                 if (slot.points != null) slot.points.gameObject.SetActive(showNumbers);

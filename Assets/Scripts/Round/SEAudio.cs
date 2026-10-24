@@ -16,7 +16,9 @@ public enum SEType
     ItemPickup,
     PowerUpPickup,
     WeaponSelect,
-    RoundFinish
+    RoundFinish,
+    RoundPointAdd,
+    TerritoryPointGain
 }
 
 public class SEAudio : MonoBehaviour

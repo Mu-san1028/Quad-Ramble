@@ -5,7 +5,7 @@ using UnityEngine.UI;
 public class FatigueUI : MonoBehaviour
 {
     [System.Serializable]
-    private class SlotView
+    public class SlotView
     {
         public GameObject root;
         public TextMeshProUGUI label;
@@ -13,6 +13,7 @@ public class FatigueUI : MonoBehaviour
         public Image icon;
         public TextMeshProUGUI rank;
         public TextMeshProUGUI points;
+        public TextMeshProUGUI earnedPoints;
         public Image[] frame;
         public Image playerBadge;
         public FatigueWaveUI wave;
@@ -21,6 +22,8 @@ public class FatigueUI : MonoBehaviour
     }
 
     private const int SelfIndex = 0;
+    private bool presentingResults;
+    public SlotView[] Slots => this.slots;
 
     [System.Serializable]
     private class RankPalette
@@ -69,6 +72,8 @@ public class FatigueUI : MonoBehaviour
             StyleText(slot.value);
             StyleText(slot.rank);
             StyleText(slot.points);
+            StyleText(slot.earnedPoints);
+            if (slot.earnedPoints != null) slot.earnedPoints.gameObject.SetActive(false);
 
             if (slot.rank != null)
             {
@@ -88,6 +93,15 @@ public class FatigueUI : MonoBehaviour
     }
 
     void Update()
+    {
+        if (this.presentingResults) return;
+        var round = RoundManager.Instance;
+        if (round != null && (round.IsRoundOver || round.RoundResults != null)) return;
+
+        this.RefreshSlots();
+    }
+
+    private void RefreshSlots()
     {
         if (this.slots.Length <= SelfIndex) return;
 
@@ -112,6 +126,26 @@ public class FatigueUI : MonoBehaviour
 
         // 人数が4人未満のときに余る枠を消す
         for (int i = next; i < this.slots.Length; i++) this.Render(this.slots[i], null);
+    }
+
+    public void BeginResults()
+    {
+        this.RefreshSlots();
+        this.presentingResults = true;
+    }
+
+    public void EndResults()
+    {
+        this.presentingResults = false;
+    }
+
+    public void SetResultScore(SlotView slot, int score, int rank)
+    {
+        if (slot.points != null) slot.points.text = $"{score}pt";
+        if (slot.rank == null) return;
+
+        slot.rank.text = FormatRank(rank);
+        this.ApplyRankColor(slot.rank, rank);
     }
 
     /// <summary>player が null なら枠ごと隠す</summary>

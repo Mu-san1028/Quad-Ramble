@@ -160,6 +160,11 @@ private void AppendServerRpc(ulong clientId, RpcParams rpcParams = default)
         return this.connections.Find(c => c.ClientId == id);
     }
 
+    public Connection GetConnectionByPlayerId(ulong playerId)
+    {
+        return this.connections.Find(c => c.Id == playerId);
+    }
+
     /// <summary>表示用の名前。見つからなければ null</summary>
     public string GetName(ulong clientId) => this.GetConnection(clientId)?.Name;
 

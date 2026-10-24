@@ -28,6 +28,7 @@ public class TitleInputController : MonoBehaviour
     private bool titleInputEnabled;
     private bool characterInputEnabled;
     private bool waitingForRelease = true;
+    private NetworkConnect.ConnectionState previousConnectionState;
 
 
     private void Awake()
@@ -50,6 +51,13 @@ public class TitleInputController : MonoBehaviour
 
     private void Update()
     {
+        if (this.previousConnectionState != this.networkConnect.State)
+        {
+            this.previousConnectionState = this.networkConnect.State;
+            this.StopInput();
+            this.waitingForRelease = true;
+        }
+
         Gamepad pad = LocalGamepad.Current;
 
         // 現在のLocalGamepadは切断済み参照を保持することがある。

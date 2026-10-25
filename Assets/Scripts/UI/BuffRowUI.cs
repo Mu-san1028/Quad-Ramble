@@ -15,6 +15,11 @@ public class BuffRowUI : MonoBehaviour
     [Header("表示")]
     [SerializeField] private Color rowColor = Color.white;
 
+    [Header("減速通知")]
+    [SerializeField] private Color slowTextColor = new Color(1f, 0.15f, 0.15f);
+    private string labelWithoutSlow;
+    private bool showingSlow;
+
     [Header("獲得時の強調")]
     [SerializeField, Min(0.01f)] private float fadeInDuration = 0.15f;
     [SerializeField, Min(0f)] private float highlightDuration = 0.2f;
@@ -73,6 +78,7 @@ public class BuffRowUI : MonoBehaviour
 
     public void Setup(string displayName, Color color, int count)
     {
+        this.ClearSlow();
         this.label.text = displayName;
         this.rowColor = color;
 
@@ -117,6 +123,36 @@ public class BuffRowUI : MonoBehaviour
         }
 
         this.hideCoroutine = StartCoroutine(this.HideAfterDelay());
+    }
+
+
+    /// <summary>強化段数を保持し、名前から半角スペース2つ分空けて減速率を表示する。</summary>
+    public void ShowSlow(string displayName, Color color, int count, float speedMultiplier)
+    {
+        this.ShowGain(displayName, color, count);
+
+        if (!this.isActiveAndEnabled || this.slideRoot == null)
+            return;
+
+        // 減速の被弾で、既存の強化区画を獲得時のように光らせない。
+        this.SetCount(count);
+
+        int percent = Mathf.RoundToInt((1f - Mathf.Clamp01(speedMultiplier)) * 100f);
+        this.labelWithoutSlow = displayName;
+        this.showingSlow = true;
+        this.label.richText = true;
+        string colorCode = ColorUtility.ToHtmlStringRGBA(this.slowTextColor);
+        this.label.text = $"{displayName}  <color=#{colorCode}>-{percent}%</color>";
+    }
+
+
+    public void ClearSlow()
+    {
+        if (!this.showingSlow)
+            return;
+
+        this.label.text = this.labelWithoutSlow;
+        this.showingSlow = false;
     }
 
 
@@ -223,6 +259,7 @@ public class BuffRowUI : MonoBehaviour
     {
         this.StopHighlight();
         this.StopHide();
+        this.ClearSlow();
     }
 
     [ContextMenu("表示確認/Power・1段")]

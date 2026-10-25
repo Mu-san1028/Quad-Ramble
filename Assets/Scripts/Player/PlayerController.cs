@@ -24,7 +24,8 @@ public class PlayerController : NetworkBehaviour
     private float CurrentMoveSpeed => (moveSpeed + (status != null ? status.SpeedBonus : 0f))
         * (status != null ? status.SlowSpeedMultiplier : 1f)
         * (isAiming ? aimMoveSpeedMultiplier : 1f);
-    private float CurrentJumpHeight => jumpHeight + (status != null ? status.JumpBonus  : 0f);
+    private float CurrentJumpHeight => (jumpHeight + (status != null ? status.JumpBonus : 0f))
+        * (status != null ? status.JumpReductionMultiplier : 1f);
     private float CurrentTurnSmoothTime => Mathf.Max(0.02f, turnSmoothTime);
 
     private CharacterController controller;
@@ -1138,10 +1139,8 @@ public class PlayerController : NetworkBehaviour
         int projectileId = this.nextProjectileId++;
         float lifetime = trajectoryMaxSteps * TrajectorySimulator.StepDuration;
         ShowProjectileClientRpc(projectileId, startPos, initialVelocity, lifetime, gravity, weaponKey);
-        // 飛行中に武器を切り替えても、発射した弾の効果を使う。
-        SlowOnHit slowEffect = wd != null && wd.bulletPrefab != null
-            ? wd.bulletPrefab.GetComponent<SlowOnHit>() : null;
-        StartCoroutine(FlyProjectile(projectileId, startPos, initialVelocity, lifetime, gravity, blastRadius, power, slowEffect, weaponKey));
+        // 発射時のキーを保持し、武器を切り替えても元の弾の効果を使う。
+        StartCoroutine(FlyProjectile(projectileId, startPos, initialVelocity, lifetime, gravity, blastRadius, power, weaponKey));
     }
 
     private void UpdateTrajectoryPreview()
@@ -1184,7 +1183,7 @@ public class PlayerController : NetworkBehaviour
     }
 
     private IEnumerator FlyProjectile(int projectileId, Vector3 start, Vector3 initialVelocity,
-        float lifetime, float gravity, float radius, float power, SlowOnHit slowEffect, Items weaponKey)
+        float lifetime, float gravity, float radius, float power, Items weaponKey)
     {
         Vector3 center = start;
         float elapsed = 0f;
@@ -1207,17 +1206,17 @@ public class PlayerController : NetworkBehaviour
                 Vector3 next = TrajectorySimulator.PositionAtTime(start, initialVelocity, gravity, nextTime);
                 if (TrajectorySimulator.TryGetHit(center, next, settings, out var hit))
                 {
-                    this.ExplodeProjectile(projectileId, hit.point, radius, power, slowEffect, weaponKey);
+                    this.ExplodeProjectile(projectileId, hit.point, radius, power, weaponKey);
                     yield break;
                 }
                 center = next;
                 elapsed = nextTime;
             }
         }
-        this.ExplodeProjectile(projectileId, center, radius, power, slowEffect, weaponKey);
+        this.ExplodeProjectile(projectileId, center, radius, power, weaponKey);
     }
 
-    private void ExplodeProjectile(int projectileId, Vector3 center, float radius, float power, SlowOnHit slowEffect, Items weaponKey)
+    private void ExplodeProjectile(int projectileId, Vector3 center, float radius, float power, Items weaponKey)
     {
         if (!IsServer) return;
 
@@ -1225,6 +1224,8 @@ public class PlayerController : NetworkBehaviour
         FinishProjectileClientRpc(projectileId, center, radius, true);
 
         var weapon = ItemDatabase.Instance.GetItem(weaponKey) as WeaponData;
+        var reductionEffect = weapon != null && weapon.bulletPrefab != null
+            ? weapon.bulletPrefab.GetComponent<StatReductionOnHit>() : null;
         bool hitPlayer = false;
 
         // 判定はサーバーだけが行う
@@ -1245,8 +1246,8 @@ public class PlayerController : NetworkBehaviour
 
             hitPlayer = true;
 
-            if (slowEffect != null)
-                slowEffect.Apply(target.GetComponent<PlayerStatus>());
+            if (reductionEffect != null)
+                reductionEffect.Apply(target.GetComponent<PlayerStatus>());
 
             Vector3 direction = (col.transform.position - center).normalized;
             this.ApplyKnockback(target.NetworkObjectId, direction, power);

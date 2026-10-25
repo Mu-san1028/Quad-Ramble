@@ -28,7 +28,11 @@ public enum Items
     // Append weapons
     RedPotion,
     BluePotion,
-    YellowPotion
+    YellowPotion,
+
+    // 既存のシーン・アイテムの番号を保持して末尾へ追加する。
+    JumpDownPotion,
+    PowerDownPotion
 }
 
 public class ItemDatabase : MonoBehaviour

@@ -30,18 +30,35 @@ public class PlayerCameraRig
         Main = Camera.main;
 
         var followCamObj = GameObject.FindWithTag("FollowCamera");
-        if (followCamObj == null) return;
+        var nextCamera = followCamObj != null ? followCamObj.GetComponent<CinemachineCamera>() : null;
+        if (nextCamera == null)
+        {
+            followCam = null;
+            thirdPerson = null;
+            return;
+        }
 
-        followCam = followCamObj.GetComponent<CinemachineCamera>();
-        if (followCam == null) return;
+        // 観戦対象の変更で、ズーム中の値を新しい基準値として取り込まない。
+        if (followCam != nextCamera)
+        {
+            followCam = nextCamera;
+            defaultFov = followCam.Lens.FieldOfView;
+            thirdPerson = followCam.GetComponent<CinemachineThirdPersonFollow>();
+            if (thirdPerson != null) defaultCameraDistance = thirdPerson.CameraDistance;
+        }
 
-        followCam.Follow = followTarget;
+        this.SetFollowTarget(followTarget);
+    }
+
+
+    public void SetFollowTarget(Transform target)
+    {
+        if (followCam == null || followCam.Follow == target) return;
+
+        followCam.Follow = target;
         followCam.LookAt = null;
-
-        defaultFov = followCam.Lens.FieldOfView;
-
-        thirdPerson = followCam.GetComponent<CinemachineThirdPersonFollow>();
-        if (thirdPerson != null) defaultCameraDistance = thirdPerson.CameraDistance;
+        // 離れた対象へ切り替えた際に、ステージを横断するカメラ補間をしない。
+        followCam.PreviousStateIsValid = false;
     }
 
     public void UpdateAim(bool isAiming, float aimPitch)

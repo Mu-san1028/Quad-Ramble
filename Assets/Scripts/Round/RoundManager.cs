@@ -12,6 +12,12 @@ public class RoundManager : NetworkBehaviour
     private NetworkSceneManager loadingSceneManager;
     private readonly NetworkVariable<bool> spawnReady = new(false);
     public bool IsReady => this.spawnReady.Value;
+    private readonly NetworkVariable<double> presentationStart = new(-1d);
+    public bool PresentationStarted => this.IsReady && this.presentationStart.Value >= 0d
+        && NetworkManager.ServerTime.Time >= this.presentationStart.Value
+        && !SceneTransitionUI.PresentationBlocked;
+    public float IntroElapsed => this.PresentationStarted
+        ? (float)(NetworkManager.ServerTime.Time - this.presentationStart.Value) : 0f;
 
     [Header("ラウンド設定")]
     [SerializeField] private float roundDuration = 90f;     // このステージの制限時間
@@ -48,7 +54,7 @@ public class RoundManager : NetworkBehaviour
     [SerializeField] private float introDuration = 5f;
     private readonly NetworkVariable<float> introRemaining = new ();
     public float IntroRemaining => this.introRemaining.Value;
-    public bool IsIntro => !this.IsReady || this.introRemaining.Value > 0f;
+    public bool IsIntro => !this.PresentationStarted || this.introRemaining.Value > 0f;
     private readonly WaitForSeconds beforeSceneTransition = new (3);
 
     public RoundScoreEntry[] RoundResults { get; private set; }
@@ -128,8 +134,21 @@ public class RoundManager : NetworkBehaviour
 
         this.remainingTime.Value = this.roundDuration;
         this.countdownRemaining.Value = this.countdownDuration;
+        var introCamera = FindAnyObjectByType<StageIntroCamera>();
+        if (introCamera != null)
+            this.introDuration = Mathf.Max(this.introDuration, introCamera.RouteDuration);
         this.introRemaining.Value = this.introDuration;
         this.spawnReady.Value = true;
+
+        if (ConnectionContainer.Instance == null || !ConnectionContainer.Instance.IsTransitioning)
+            this.BeginPresentation();
+    }
+
+    /// <summary>全端末の準備完了後、暗転解除と紹介の共通開始時刻を配信する。</summary>
+    public void BeginPresentation(double startAt = -1d)
+    {
+        if (!IsServer || !this.IsReady || this.presentationStart.Value >= 0d) return;
+        this.presentationStart.Value = startAt >= 0d ? startAt : NetworkManager.ServerTime.Time + 0.25d;
     }
 
     private void UnsubscribeSceneLoading()
@@ -149,13 +168,16 @@ public class RoundManager : NetworkBehaviour
 
     void Update()
     {
-        if (!IsServer || !this.IsReady || this.IsRoundOver) return;
+        if (!IsServer || !this.PresentationStarted || this.IsRoundOver) return;
 
         if (this.introRemaining.Value > 0f)
         {
-            this.introRemaining.Value = Mathf.Max(0f, this.introRemaining.Value - Time.deltaTime);
+            this.introRemaining.Value = Mathf.Max(0f, this.introDuration - this.IntroElapsed);
             return;
         }
+
+        // 遅い端末の暗転解除が残っている間は試合を始めない。
+        if (ConnectionContainer.Instance != null && ConnectionContainer.Instance.IsTransitioning) return;
 
         // 最後の1秒はStart表示を残したままプレイする。
         if (this.countdownRemaining.Value > 0f)

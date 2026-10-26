@@ -88,12 +88,14 @@ public class PlayerController : NetworkBehaviour
     private bool pendingStartFacing;
 
     public bool IsTitleMode { get; private set; }
+    public int LastPlacementRound { get; private set; } = -1;
 
     public bool IsControllable =>
         (this.IsOwner || this.allowOfflineControl)
         && !this.isEliminated
         && !this.IsTitleMode
         && !this.controlsStopped
+        && !SceneTransitionUI.InputBlocked
         && (RoundManager.Instance == null || !RoundManager.Instance.IsRoundOver);
 
     private readonly RaycastHit[] aimHits = new RaycastHit[8];
@@ -430,11 +432,12 @@ public class PlayerController : NetworkBehaviour
     public void Teleport(Vector3 position, Quaternion rotation)
     {
         if (!IsServer) return;
-        TeleportClientRpc(position, rotation);
+        TeleportClientRpc(position, rotation, ConnectionContainer.Instance != null
+            ? ConnectionContainer.Instance.CurrentRound : 0);
     }
 
     [Rpc(SendTo.ClientsAndHost)]
-    private void TeleportClientRpc(Vector3 position, Quaternion rotation)
+    private void TeleportClientRpc(Vector3 position, Quaternion rotation, int placementRound)
     {
         GetComponent<PlayerAnimator>()?.ResetAirborneState();
         // モデルだけのTitle回転はNetworkTransformでは同期されないため全端末で戻す。
@@ -458,6 +461,8 @@ public class PlayerController : NetworkBehaviour
         // 照準もスポーン地点の向きに合わせる。
         // これが無いと、体が次のフレームで前ラウンドの aimYaw に向き直ってしまう
         this.ResetFacing(rotation);
+
+        this.LastPlacementRound = placementRound;
 
         // 速度もリセット
         velocity = Vector3.zero;
@@ -789,6 +794,7 @@ public class PlayerController : NetworkBehaviour
 
     private bool TrySwitchSpectator(int direction)
     {
+        if (SceneTransitionUI.InputBlocked) return true;
         if (!IsSpawned || !IsOwner || !this.IsEliminated) return false;
 
         var round = RoundManager.Instance;

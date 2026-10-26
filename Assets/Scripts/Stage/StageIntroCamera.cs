@@ -14,6 +14,8 @@ public sealed class StageIntroCamera : MonoBehaviour
     [Tooltip("Pointsと同じ番号に注視対象を設定。未設定の地点ではPointのRotationを使用")]
     [SerializeField] private Transform[] lookTargets;
     [SerializeField, Min(0.01f)] private float secondsPerSegment = 2f;
+    public float RouteDuration => this.points == null ? 0f
+        : Mathf.Max(0, this.points.Length - 1) * Mathf.Max(0.01f, this.secondsPerSegment);
 
     private CinemachineBrain brain;
     private bool originalBrainEnabled;
@@ -63,11 +65,11 @@ public sealed class StageIntroCamera : MonoBehaviour
 
         introStarted = true;
 
-        // 幕が開くまでは最初の地点で待機する。
-        if (SceneTransitionUI.Instance != null && SceneTransitionUI.Instance.IsCovering)
+        // 黒背景が消え始めるまでは最初の地点で待機する。
+        if (!round.PresentationStarted)
             return;
 
-        elapsed += Time.deltaTime;
+        elapsed = round.IntroElapsed;
         ApplyPose();
     }
 

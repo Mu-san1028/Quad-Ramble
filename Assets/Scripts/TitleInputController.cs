@@ -51,6 +51,13 @@ public class TitleInputController : MonoBehaviour
 
     private void Update()
     {
+        if (SceneTransitionUI.InputBlocked)
+        {
+            this.StopInput();
+            this.waitingForRelease = true;
+            return;
+        }
+
         if (this.previousConnectionState != this.networkConnect.State)
         {
             this.previousConnectionState = this.networkConnect.State;

@@ -3,7 +3,7 @@ using TMPro;
 
 /// <summary>
 /// ラウンド開始前に、ステージ名・制作者・説明を表示する。
-/// 幕が開き切ってから左上へ滑り込み、紹介終了時に左の画面外へ戻る。
+/// 暗転解除から左上へ滑り込み、紹介終了時に左の画面外へ戻る。
 /// </summary>
 public class RoundInfoUI : MonoBehaviour
 {
@@ -43,7 +43,7 @@ public class RoundInfoUI : MonoBehaviour
     private void Update()
     {
         var round = RoundManager.Instance;
-        if (round == null || !round.IsSpawned || !round.IsReady)
+        if (round == null || !round.IsSpawned || !round.PresentationStarted)
         {
             this.panel.gameObject.SetActive(false);
             return;
@@ -80,9 +80,6 @@ public class RoundInfoUI : MonoBehaviour
 
     private void Slide(float remaining)
     {
-        // 幕が開き切るまでは動かさない。幕の秒数をこちらに書き写さなくて済む
-        if (SceneTransitionUI.Instance != null && SceneTransitionUI.Instance.IsCovering) return;
-
         // 読み込み直後の1フレームは deltaTime が跳ねるので上限を掛ける
         this.elapsed += Mathf.Min(Time.deltaTime, 0.05f);
 

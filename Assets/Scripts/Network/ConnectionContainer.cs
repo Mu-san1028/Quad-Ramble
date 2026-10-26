@@ -26,7 +26,7 @@ public class Connection
     }
 }
 
-public class ConnectionContainer : NetworkBehaviour
+public partial class ConnectionContainer : NetworkBehaviour
 {
     public static ConnectionContainer Instance { get; private set; }
     private readonly List<Connection> connections = new();
@@ -62,6 +62,7 @@ public class ConnectionContainer : NetworkBehaviour
 
             NetworkManager.Singleton.OnClientDisconnectCallback
                 += this.HandleClientDisconnect;
+            NetworkManager.Singleton.OnClientConnectedCallback += this.HandleTransitionJoin;
         }
 
         Instance = this;
@@ -69,9 +70,11 @@ public class ConnectionContainer : NetworkBehaviour
     }
     public override void OnNetworkDespawn()
     {
+        this.CleanupTransition();
         if (NetworkManager.Singleton != null)
         {
             NetworkManager.Singleton.OnClientDisconnectCallback -= this.HandleClientDisconnect;
+            NetworkManager.Singleton.OnClientConnectedCallback -= this.HandleTransitionJoin;
         }
 
         if (Instance == this) Instance = null;
@@ -80,6 +83,7 @@ public class ConnectionContainer : NetworkBehaviour
     private void HandleClientDisconnect(ulong clientId)
     {
         if (!IsServer) return;
+        this.transitionBarrier.Remove(clientId);
         if (this.connections.RemoveAll(c => c.ClientId == clientId) == 0) return;
         this.BroadcastRoster();
     }
@@ -179,6 +183,7 @@ private void AppendServerRpc(ulong clientId, RpcParams rpcParams = default)
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     public void SelectCharacterRpc(int index, RpcParams rpcParams = default)
     {
+        if (this.IsTransitioning) return;
         ulong senderId = rpcParams.Receive.SenderClientId;
 
         Connection me = this.GetConnection(senderId);
@@ -199,6 +204,7 @@ private void AppendServerRpc(ulong clientId, RpcParams rpcParams = default)
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     public void SetReadyRpc(bool ready, RpcParams rpcParams = default)
     {
+        if (this.IsTransitioning) return;
         Connection me = this.GetConnection(rpcParams.Receive.SenderClientId);
         if (me == null) return;
         if (ready && me.CharacterIndex < 0) return;   // 選ぶ前に決定はできない

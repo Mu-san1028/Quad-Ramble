@@ -180,13 +180,15 @@ public partial class ConnectionContainer
             var scene = SceneManager.GetActiveScene();
             var playerObject = NetworkManager.LocalClient?.PlayerObject;
             var player = playerObject != null ? playerObject.GetComponent<PlayerController>() : null;
+            var inventory = playerObject != null ? playerObject.GetComponent<PlayerItem>() : null;
             bool ready = scene.name == sceneName && scene.isLoaded;
             if (!results)
             {
                 var manager = RoundManager.Instance;
                 ready &= manager != null && manager.IsSpawned && manager.IsReady
                     && manager.gameObject.scene.name == sceneName
-                    && player != null && player.LastPlacementRound == round;
+                    && player != null && player.LastPlacementRound == round
+                    && inventory != null && inventory.LastWeaponsResetRound == round;
                 if (ready) SceneTransitionUI.Instance.SetStageName(manager.StageName);
             }
 

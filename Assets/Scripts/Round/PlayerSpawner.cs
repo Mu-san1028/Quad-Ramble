@@ -30,7 +30,8 @@ public class PlayerSpawner : MonoBehaviour
 
         //　PlayerItemを初期化する
         PlayerItem playerItem = player.GetComponent<PlayerItem>();
-        playerItem.ClearAllWeapons();
+        playerItem.ResetWeaponsForRound(ConnectionContainer.Instance != null
+            ? ConnectionContainer.Instance.CurrentRound : 0);
 
         if (interactableObject != null)
         {

@@ -64,7 +64,7 @@ public class RoundInfoUI : MonoBehaviour
     {
         this.stageNameText.text   = round.StageName;
         this.descriptionText.text = round.Description;
-        this.authorText.text      = $"created by {round.Author}";
+        this.authorText.text      = round.Author;
 
         // 表示する前に画面外へ寄せておく。1フレームだけ中央に見えるのを防ぐ
         this.elapsed = 0f;

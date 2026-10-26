@@ -13,7 +13,7 @@ public enum Items
     Bomb,
     GoldenBomb,
     Gun,
-    Thorn,
+    shuriken,
     Spear,
     Sword,
     Landmine,
@@ -32,7 +32,8 @@ public enum Items
 
     // 既存のシーン・アイテムの番号を保持して末尾へ追加する。
     JumpDownPotion,
-    PowerDownPotion
+    PowerDownPotion,
+    shurikenGold
 }
 
 public class ItemDatabase : MonoBehaviour

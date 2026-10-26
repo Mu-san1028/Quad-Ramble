@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.InputSystem;
 using System.Collections;
 using System.Collections.Generic;
@@ -37,6 +37,19 @@ public class PlayerController : NetworkBehaviour
     // 接地の真値。所有者しか Move() を呼ばないので、他人のコピーでは isGrounded が更新されない
     private readonly NetworkVariable<bool> networkGrounded = new(writePerm: NetworkVariableWritePermission.Owner);
     private readonly NetworkVariable<bool> networkRising = new(writePerm: NetworkVariableWritePermission.Owner);
+    private readonly NetworkVariable<Vector2> networkViewAngles = new(writePerm: NetworkVariableWritePermission.Owner);
+    private readonly NetworkVariable<bool> networkAiming = new(writePerm: NetworkVariableWritePermission.Owner);
+
+    private PlayerController spectatorTarget;
+    private Transform spectatorAnchor;
+    private bool spectating;
+    private bool spectatorAiming;
+    private float spectatorPitch;
+    private bool spectatorTargetChanged;
+    private SpectatorUI spectatorHud;
+    [SerializeField] private SpectatorUI spectatorUIPrefab;
+
+    public PlayerController SpectatorTarget => this.spectatorTarget;
 
     /// <summary>坂道の座標変化ではなく、ジャンプ・衝撃による上昇をアニメーションへ伝える。</summary>
     public bool IsRising => (IsSpawned && !IsOwner)
@@ -230,6 +243,7 @@ public class PlayerController : NetworkBehaviour
 
     public override void OnNetworkDespawn()
     {
+        this.ClearSpectating(false);
         this.eliminated.OnValueChanged -= this.HandleEliminatedChanged;
         this.effects.ClearProjectiles();
         PlayerManager.Instance?.RemovePlayer(this);
@@ -241,6 +255,7 @@ public class PlayerController : NetworkBehaviour
     }
     void OnDisable()
     {
+        this.ClearSpectating(false);
         SceneManager.sceneLoaded -= RefreshMainCamera;
     }
 
@@ -258,6 +273,7 @@ public class PlayerController : NetworkBehaviour
             this.SetTitleMode(false);
 
         if (!IsOwner) return;
+        this.ClearSpectating(false);
         isAiming = false;
         cameraRig.Rebind(aimPivot != null ? aimPivot : transform);
     }
@@ -537,6 +553,8 @@ public class PlayerController : NetworkBehaviour
 
     void OnNextWeapon(InputValue value)
     {
+        if (value.isPressed && this.TrySwitchSpectator(1)) return;
+
         if (!this.IsControllable)
             return;
 
@@ -548,6 +566,8 @@ public class PlayerController : NetworkBehaviour
 
     void OnPreviousWeapon(InputValue value)
     {
+        if (value.isPressed && this.TrySwitchSpectator(-1)) return;
+
         if (!this.IsControllable)
             return;
 
@@ -651,7 +671,8 @@ public class PlayerController : NetworkBehaviour
             return;
 
         this.UpdateAimInput();
-        cameraRig.UpdateAim(isAiming, aimPitch);
+        if (IsOwner && !this.IsEliminated)
+            cameraRig.UpdateAim(isAiming, aimPitch);
         this.UpdateTrajectoryPreview();
 
         if (controller != null && controller.enabled && this.IsControllable)
@@ -662,6 +683,12 @@ public class PlayerController : NetworkBehaviour
         // 体の回転より後に適用する。親の回転を継承させないため
         this.ApplyAimPivot();
 
+        if (IsSpawned && IsOwner)
+        {
+            this.networkViewAngles.Value = new Vector2(this.aimYaw, this.aimPitch);
+            this.networkAiming.Value = this.isAiming;
+        }
+
         // 操作停止中も更新し、上昇状態が他端末に残らないようにする。
         if (IsSpawned && IsOwner && this.networkRising.Value != this.IsRising)
             this.networkRising.Value = this.IsRising;
@@ -670,7 +697,7 @@ public class PlayerController : NetworkBehaviour
     /// <summary>右スティックの入力を照準のヨー・ピッチに積分する</summary>
     private void UpdateAimInput()
     {
-        if (!IsOwner) return;
+        if (!this.IsControllable) return;
 
         float dt = Time.deltaTime;
 
@@ -687,6 +714,161 @@ public class PlayerController : NetworkBehaviour
 
         // aimPitch は「正が上向き」。UnityのX回転は正が下向きなので符号を反転する
         aimPivot.rotation = Quaternion.Euler(-aimPitch, aimYaw, 0f);
+    }
+
+
+    /// <summary>操作とは独立して、脱落した本人のカメラだけを生存者へ向ける。</summary>
+    private void LateUpdate()
+    {
+        if (!IsSpawned || !IsOwner) return;
+
+        var round = RoundManager.Instance;
+        if (!this.IsEliminated || this.IsTitleMode || round == null || !round.IsSpawned || !round.IsReady)
+        {
+            this.ClearSpectating(true);
+            return;
+        }
+
+        if (!this.spectating)
+        {
+            this.spectatorAnchor = new GameObject("Spectator Camera Target").transform;
+            this.spectatorAnchor.gameObject.hideFlags = HideFlags.DontSave;
+            this.spectatorAnchor.SetPositionAndRotation(
+                this.aimPivot != null ? this.aimPivot.position : transform.position,
+                Quaternion.Euler(-this.aimPitch, this.aimYaw, 0f));
+            this.spectatorPitch = this.aimPitch;
+            this.spectatorAiming = false;
+            this.spectating = true;
+            this.cameraRig.Rebind(this.spectatorAnchor);
+        }
+
+        // 結果表示中は追従を止め、最後に見ていた場所を保持する。
+        if (round.IsRoundOver)
+        {
+            if (this.spectatorHud != null) this.spectatorHud.Hide();
+            return;
+        }
+
+        bool switched = this.spectatorTargetChanged;
+        this.spectatorTargetChanged = false;
+        if (!this.CanSpectate(this.spectatorTarget))
+        {
+            this.spectatorTarget = this.ChooseSpectatorTarget();
+            switched = this.spectatorTarget != null;
+        }
+
+        this.UpdateSpectatorHud();
+        if (this.spectatorTarget == null) return;
+
+        var target = this.spectatorTarget;
+        Vector2 angles = target.networkViewAngles.Value;
+        Quaternion rotation = Quaternion.Euler(-angles.y, angles.x, 0f);
+        this.spectatorAnchor.position = target.aimPivot != null
+            ? target.aimPivot.position : target.transform.position;
+        this.spectatorAnchor.rotation = switched ? rotation : Quaternion.Slerp(
+            this.spectatorAnchor.rotation, rotation, 1f - Mathf.Exp(-15f * Time.deltaTime));
+        this.spectatorPitch = angles.y;
+        this.spectatorAiming = target.networkAiming.Value;
+
+        if (switched)
+        {
+            // アンカー自体は再利用するため、対象変更時には明示的にカメラの履歴を切る。
+            this.cameraRig.SetFollowTarget(null);
+            this.cameraRig.SetFollowTarget(this.spectatorAnchor);
+        }
+
+        this.cameraRig.UpdateAim(this.spectatorAiming, this.spectatorPitch);
+    }
+
+
+    private bool CanSpectate(PlayerController candidate)
+    {
+        return candidate != null && candidate != this && candidate.IsSpawned
+            && candidate.isActiveAndEnabled && !candidate.IsEliminated && !candidate.IsTitleMode;
+    }
+
+    private bool TrySwitchSpectator(int direction)
+    {
+        if (!IsSpawned || !IsOwner || !this.IsEliminated) return false;
+
+        var round = RoundManager.Instance;
+        if (!this.spectating || this.IsTitleMode || round == null || !round.IsSpawned
+            || !round.IsReady || round.IsRoundOver) return true;
+
+        var manager = PlayerManager.Instance;
+        if (manager == null) return true;
+
+        var candidates = new List<PlayerController>();
+        foreach (var candidate in manager.AllPlayers)
+        {
+            if (this.CanSpectate(candidate)) candidates.Add(candidate);
+        }
+
+        if (candidates.Count == 0) return true;
+
+        // 接続順で固定し、LとRが互いに逆順になるようにする。
+        candidates.Sort((a, b) => a.OwnerClientId.CompareTo(b.OwnerClientId));
+        int index = candidates.IndexOf(this.spectatorTarget);
+        int next = index < 0 ? (direction > 0 ? 0 : candidates.Count - 1)
+            : (index + direction + candidates.Count) % candidates.Count;
+        this.spectatorTargetChanged |= this.spectatorTarget != candidates[next];
+        this.spectatorTarget = candidates[next];
+        return true;
+    }
+
+    private void UpdateSpectatorHud()
+    {
+        if (this.spectatorTarget == null)
+        {
+            if (this.spectatorHud != null) this.spectatorHud.Hide();
+            return;
+        }
+
+        if (this.spectatorHud == null)
+        {
+            if (this.spectatorUIPrefab == null) return;
+            this.spectatorHud = Instantiate(this.spectatorUIPrefab);
+        }
+
+        var name = ConnectionContainer.Instance != null
+            ? ConnectionContainer.Instance.GetName(this.spectatorTarget.OwnerClientId) : null;
+        if (string.IsNullOrWhiteSpace(name)) name = $"Player {this.spectatorTarget.OwnerClientId + 1}";
+        this.spectatorHud.Show(name);
+    }
+
+
+    private PlayerController ChooseSpectatorTarget()
+    {
+        var manager = PlayerManager.Instance;
+        if (manager == null) return null;
+
+        // Playersの脱落順リストはサーバーで更新されるため、同期済みのIsEliminatedで選ぶ。
+        PlayerController selected = null;
+        int count = 0;
+        foreach (var candidate in manager.AllPlayers)
+        {
+            if (!this.CanSpectate(candidate)) continue;
+            count++;
+            if (Random.Range(0, count) == 0) selected = candidate;
+        }
+        return selected;
+    }
+
+
+    private void ClearSpectating(bool restoreCamera)
+    {
+        if (!this.spectating) return;
+
+        if (restoreCamera && IsOwner)
+            this.cameraRig.Rebind(this.aimPivot != null ? this.aimPivot : transform);
+
+        this.spectating = false;
+        this.spectatorTarget = null;
+        this.spectatorTargetChanged = false;
+        if (this.spectatorHud != null) Destroy(this.spectatorHud.gameObject);
+        this.spectatorHud = null;
+        if (this.spectatorAnchor != null) Destroy(this.spectatorAnchor.gameObject);
+        this.spectatorAnchor = null;
     }
 
     private void UpdateMovement()

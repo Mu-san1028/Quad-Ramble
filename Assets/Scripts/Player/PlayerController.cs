@@ -332,6 +332,27 @@ public class PlayerController : NetworkBehaviour
         this.eliminated.Value = true;
     }
 
+    // サーバーだけが保持する。復帰・次ラウンドの配置で破棄する。
+    private PlayerController lastKnockoutAttacker;
+
+    public void ConfirmFallKnockout()
+    {
+        if (!IsServer || this.IsEliminated) return;
+        var attacker = this.lastKnockoutAttacker;
+        this.lastKnockoutAttacker = null;
+        if (attacker == null || attacker == this || !attacker.IsSpawned) return;
+        attacker.ShowKnockoutOwnerRpc(ConnectionContainer.Instance != null
+            ? ConnectionContainer.Instance.CurrentRound : 0);
+    }
+
+    [Rpc(SendTo.Owner)]
+    private void ShowKnockoutOwnerRpc(int round)
+    {
+        if (!IsOwner || (ConnectionContainer.Instance != null
+            && ConnectionContainer.Instance.CurrentRound != round)) return;
+        GetComponent<PlayerKOFeedback>()?.Play();
+    }
+
     private void HandleEliminatedChanged(bool previous, bool current)
     {
         this.ApplyEliminatedState(current);
@@ -425,6 +446,7 @@ public class PlayerController : NetworkBehaviour
     public void Revive()
     {
         if (!IsServer) return;
+        this.lastKnockoutAttacker = null;
         this.eliminated.Value = false;
     }
 
@@ -432,6 +454,7 @@ public class PlayerController : NetworkBehaviour
     public void Teleport(Vector3 position, Quaternion rotation)
     {
         if (!IsServer) return;
+        this.lastKnockoutAttacker = null;
         TeleportClientRpc(position, rotation, ConnectionContainer.Instance != null
             ? ConnectionContainer.Instance.CurrentRound : 0);
     }
@@ -1288,6 +1311,10 @@ public class PlayerController : NetworkBehaviour
         if (!NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(targetId, out var netObj)) return;
 
         var targetStatus = netObj.GetComponent<PlayerStatus>();
+
+        var victim = netObj.GetComponent<PlayerController>();
+        if (victim == null || victim == this || victim.IsEliminated) return;
+        victim.lastKnockoutAttacker = this;
 
         // 先に疲労を蓄積し、その値を含めた倍率で吹き飛ばす
         targetStatus?.AddFatigue(power);

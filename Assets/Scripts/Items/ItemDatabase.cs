@@ -33,7 +33,9 @@ public enum Items
     // 既存のシーン・アイテムの番号を保持して末尾へ追加する。
     JumpDownPotion,
     PowerDownPotion,
-    shurikenGold
+    shurikenGold,
+    Dagger,
+    Axe
 }
 
 public class ItemDatabase : MonoBehaviour

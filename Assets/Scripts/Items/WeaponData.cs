@@ -46,7 +46,7 @@ public class WeaponData : ItemBase
     public bool FliesStraight => this.gravityScale <= 0f;
     public float launchAngle = 45f;
 
-    [Header("飛行中の見た目")]
+    [Header("落ちる弾の向きを飛行方向に合わせるか")]
     [Tooltip("弾のローカル＋Z方向を、飛行中の進行方向へ向けます。")]
     public bool faceFlightDirection;
 

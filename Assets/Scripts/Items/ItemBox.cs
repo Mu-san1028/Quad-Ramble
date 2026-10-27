@@ -5,6 +5,7 @@ using UnityEngine;
 /// <summary>
 /// アイテムの出現ポイント。取られたら一定時間後に復活する
 /// </summary>
+[DisallowMultipleComponent]
 public class ItemBox : NetworkBehaviour
 {
     [SerializeField] private float respawnTime = 10f;
@@ -14,7 +15,7 @@ public class ItemBox : NetworkBehaviour
     private Collider triggerCollider;
     private ItemBoxAnimation boxAnimator;
 
-    private void Awake()
+    protected virtual void Awake()
     {
         this.triggerCollider = GetComponent<Collider>();
         this.boxAnimator = GetComponentInChildren<ItemBoxAnimation>();
@@ -31,13 +32,14 @@ public class ItemBox : NetworkBehaviour
         this.isAvailable.OnValueChanged -= this.OnAvailabilityChanged;
     }
 
-    private void OnTriggerEnter(Collider other)
+    protected virtual void OnTriggerEnter(Collider other)
     {
         if (!IsServer) return;
         if (!this.isAvailable.Value) return;
         if (!other.TryGetComponent(out PlayerItem playerItem)) return;
 
-        if (!playerItem.TryApplyItemServer(this.RollItem())) return;
+        if (!this.TryRollItem(out Items item)) return;
+        if (!playerItem.TryApplyItemServer(item)) return;
 
         this.isAvailable.Value = false;
         StartCoroutine(this.RespawnRoutine());
@@ -49,15 +51,21 @@ public class ItemBox : NetworkBehaviour
         this.isAvailable.Value = true;
     }
 
-    private Items RollItem()
+    protected virtual Items[] GetItemTable(RoundManager round) => round.AvailableItems;
+
+    private bool TryRollItem(out Items item)
     {
-        var table = RoundManager.Instance != null ? RoundManager.Instance.AvailableItems : null;
+        item = default;
+        var round = RoundManager.Instance;
+        var table = round != null ? this.GetItemTable(round) : null;
         if (table == null || table.Length == 0)
         {
-            Debug.LogWarning("RoundManager に出現アイテムが設定されていません");
-            return default;
+            Debug.LogWarning($"{this.GetType().Name}: RoundManagerに抽選アイテムが設定されていません。", this);
+            return false;
         }
-        return table[Random.Range(0, table.Length)];
+
+        item = table[Random.Range(0, table.Length)];
+        return true;
     }
 
     private void OnAvailabilityChanged(bool previous, bool current) => this.ApplyVisual(current);

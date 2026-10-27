@@ -25,6 +25,8 @@ public class RoundManager : NetworkBehaviour
 
     [Header("このラウンドに出現するアイテム")]
     [SerializeField] private Items[] availableItems;
+    [Tooltip("ItemBox_rareから抽選するアイテム。空の場合は取得できません。")]
+    [SerializeField] private Items[] rareItems = new Items[0];
     [SerializeField] private Items[] blockDropItems;
 
     [Header("ラウンドの情報")]
@@ -46,6 +48,7 @@ public class RoundManager : NetworkBehaviour
 
     public Items[] BlockDropItems => this.blockDropItems;
     public Items[] AvailableItems => this.availableItems;
+    public Items[] RareItems => this.rareItems;
 
     private PlayerSpawner playerSpawner;
     private RoundScoring scoring;

@@ -1394,17 +1394,17 @@ public class PlayerController : NetworkBehaviour
                 Vector3 next = TrajectorySimulator.PositionAtTime(start, initialVelocity, gravity, nextTime);
                 if (TrajectorySimulator.TryGetHit(center, next, settings, out var hit))
                 {
-                    this.ExplodeProjectile(projectileId, hit.point, radius, power, weaponKey);
+                    this.ExplodeProjectile(projectileId, hit.point, radius, power, weaponKey, collided: true);
                     yield break;
                 }
                 center = next;
                 elapsed = nextTime;
             }
         }
-        this.ExplodeProjectile(projectileId, center, radius, power, weaponKey);
+        this.ExplodeProjectile(projectileId, center, radius, power, weaponKey, collided: false);
     }
 
-    private void ExplodeProjectile(int projectileId, Vector3 center, float radius, float power, Items weaponKey)
+    private void ExplodeProjectile(int projectileId, Vector3 center, float radius, float power, Items weaponKey, bool collided)
     {
         if (!IsServer) return;
 
@@ -1441,8 +1441,9 @@ public class PlayerController : NetworkBehaviour
             this.ApplyKnockback(target.NetworkObjectId, direction, power);
         }
 
+        // 時間切れでは無音。衝突時は敵への命中、または非命中SE設定に従う。
         // 敵が複数いても、爆発1回につきSEは1回だけ通知する。
-        if (weapon != null && weapon.hitSE != null
+        if (collided && weapon != null && weapon.hitSE != null
             && (weapon.playExplosionSEOnMiss || hitPlayer))
         {
             this.PlayWeaponSEClientRpc(weaponKey, true);

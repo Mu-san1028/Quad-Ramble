@@ -12,6 +12,13 @@ public class BuffRowUI : MonoBehaviour
     [SerializeField] private Image segmentPrefab;
     [SerializeField] private TextMeshProUGUI label;
 
+    [Header("背景")]
+    [SerializeField] private Image background;
+    [SerializeField] private Color backgroundColor = new Color(0.04f, 0.08f, 0.18f, 0.6f);
+    [SerializeField] private Vector2 backgroundPadding = new Vector2(10f, 5f);
+    private readonly Vector3[] backgroundCorners = new Vector3[4];
+    private bool backgroundDirty = true;
+
     [Header("表示")]
     [SerializeField] private Color rowColor = Color.white;
 
@@ -74,6 +81,8 @@ public class BuffRowUI : MonoBehaviour
             segment.gameObject.SetActive(i < count);
             segment.color = displayColor;
         }
+
+        this.backgroundDirty = true;
     }
 
     public void Setup(string displayName, Color color, int count)
@@ -143,6 +152,7 @@ public class BuffRowUI : MonoBehaviour
         this.label.richText = true;
         string colorCode = ColorUtility.ToHtmlStringRGBA(this.slowTextColor);
         this.label.text = $"{displayName}  <color=#{colorCode}>-{percent}%</color>";
+        this.backgroundDirty = true;
     }
 
 
@@ -153,6 +163,71 @@ public class BuffRowUI : MonoBehaviour
 
         this.label.text = this.labelWithoutSlow;
         this.showingSlow = false;
+        this.backgroundDirty = true;
+    }
+
+    private void OnEnable()
+    {
+        this.backgroundDirty = true;
+    }
+
+    private void OnRectTransformDimensionsChange()
+    {
+        this.backgroundDirty = true;
+    }
+
+    private void OnValidate()
+    {
+        this.backgroundDirty = true;
+    }
+
+    private void LateUpdate()
+    {
+        if (!this.backgroundDirty || this.background == null || this.slideRoot == null)
+            return;
+
+        // 追加・非表示にした区画をレイアウトへ反映してから、実際の表示範囲を測る。
+        LayoutRebuilder.ForceRebuildLayoutImmediate(this.slideRoot);
+        Vector2 min = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
+        Vector2 max = new Vector2(float.NegativeInfinity, float.NegativeInfinity);
+        this.IncludeBackgroundRect(this.baseSegment.rectTransform, ref min, ref max);
+        foreach (Image segment in this.segments)
+        {
+            if (segment.gameObject.activeSelf)
+                this.IncludeBackgroundRect(segment.rectTransform, ref min, ref max);
+        }
+
+        // Labelは幅400の固定枠なので、枠全体ではなく実際の文字領域を含める。
+        this.label.ForceMeshUpdate();
+        Bounds textBounds = this.label.textBounds;
+        Vector3 textMin = textBounds.min;
+        Vector3 textMax = textBounds.max;
+        this.IncludeBackgroundPoint(this.label.transform.TransformPoint(textMin), ref min, ref max);
+        this.IncludeBackgroundPoint(this.label.transform.TransformPoint(textMax), ref min, ref max);
+
+        Vector2 padding = new Vector2(Mathf.Max(0f, this.backgroundPadding.x), Mathf.Max(0f, this.backgroundPadding.y));
+        RectTransform rect = this.background.rectTransform;
+        rect.anchorMin = rect.anchorMax = this.slideRoot.pivot;
+        rect.pivot = Vector2.zero;
+        rect.anchoredPosition = min - padding;
+        rect.sizeDelta = max - min + padding * 2f;
+        this.background.color = this.backgroundColor;
+        this.background.raycastTarget = false;
+        this.backgroundDirty = false;
+    }
+
+    private void IncludeBackgroundRect(RectTransform rect, ref Vector2 min, ref Vector2 max)
+    {
+        rect.GetWorldCorners(this.backgroundCorners);
+        foreach (Vector3 corner in this.backgroundCorners)
+            this.IncludeBackgroundPoint(corner, ref min, ref max);
+    }
+
+    private void IncludeBackgroundPoint(Vector3 world, ref Vector2 min, ref Vector2 max)
+    {
+        Vector2 point = this.slideRoot.InverseTransformPoint(world);
+        min = Vector2.Min(min, point);
+        max = Vector2.Max(max, point);
     }
 
 

@@ -25,7 +25,7 @@ public class WeaponData : ItemBase
     [Tooltip("近接武器：敵への命中時。投擲武器：爆発時に下の設定に従って1回再生。")]
     public AudioClip hitSE;
     [Range(0f, 1f)] public float hitSEVolume = 1f;
-    [Tooltip("投擲武器のみ。ONなら敵に当たらなくても爆発SEを再生。OFFなら爆発範囲に敵がいた場合のみ再生。")]
+    [Tooltip("投擲武器のみ。ONなら壁・地面などへの衝突でもSEを再生。OFFなら衝突時の爆発範囲に敵がいた場合のみ再生。飛行時間切れでは常に無音。")]
     public bool playExplosionSEOnMiss = true;
 
     [Header("Melee：攻撃範囲")]

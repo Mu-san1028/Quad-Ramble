@@ -56,6 +56,17 @@ public class BombSensorField : MonoBehaviour
     public void SetPlayerController(PlayerController player)
     {
         this.territoryOwner = player;
+        this.SetTerritoryActive(player != null);
+    }
+
+    /// <summary>プレイヤーがいない陣地はBoxColliderを通常の障害物にする。</summary>
+    public void SetTerritoryActive(bool hasOwner)
+    {
+        BoxCollider territoryCollider = GetComponent<BoxCollider>();
+        if (territoryCollider == null) return;
+
+        // 空き陣地はIsTriggerを外し、爆弾が物理的に通過できないようにする。
+        territoryCollider.isTrigger = hasOwner;
     }
 
     private void ApplyTerritoryPenalty()

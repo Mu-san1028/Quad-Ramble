@@ -9,7 +9,7 @@ public class PlayerDamageFeedback : MonoBehaviour
     private readonly List<DamagePopupUI> active = new List<DamagePopupUI>();
     private int sequence;
 
-    public void Show(float damage, Vector3 position, int round)
+    public void Show(float damage, Vector3 position, int round, bool critical = false)
     {
         if (!isActiveAndEnabled || prefab == null || damage <= 0f) return;
         active.RemoveAll(popup => popup == null);
@@ -20,7 +20,7 @@ public class PlayerDamageFeedback : MonoBehaviour
         }
 
         var popup = Instantiate(prefab);
-        popup.Play(damage, position, round, sequence++);
+        popup.Play(damage, position, round, sequence++, critical);
         active.Add(popup);
     }
 

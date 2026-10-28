@@ -1397,7 +1397,7 @@ public class PlayerController : NetworkBehaviour
     }
 
     /// <summary>サーバーが最終的なノックバックを決めて対象に適用させる</summary>
-    private void ApplyKnockback(ulong targetId, Vector3 direction, float power)
+    private void ApplyKnockback(ulong targetId, Vector3 direction, float power, bool critical = false)
     {
         if (!IsServer) return;
         if (!NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(targetId, out var netObj)) return;
@@ -1410,11 +1410,13 @@ public class PlayerController : NetworkBehaviour
 
         // 先に疲労を蓄積し、その値を含めた倍率で吹き飛ばす
         float previousFatigue = targetStatus != null ? targetStatus.Fatigue : 0f;
-        targetStatus?.AddFatigue(power);
+        float damageMultiplier = critical && ItemDatabase.Instance != null
+            ? ItemDatabase.Instance.CriticalDamageMultiplier : 1f;
+        targetStatus?.AddFatigue(power * damageMultiplier);
         float damage = targetStatus != null ? targetStatus.Fatigue - previousFatigue : 0f;
         if (damage > 0f)
             ShowDamageOwnerRpc(damage, victim.transform.position,
-                ConnectionContainer.Instance != null ? ConnectionContainer.Instance.CurrentRound : 0);
+                ConnectionContainer.Instance != null ? ConnectionContainer.Instance.CurrentRound : 0, critical);
         float multiplier = targetStatus != null ? targetStatus.KnockbackMultiplier : 1f;
 
         Vector3 force = direction.normalized * power * multiplier;
@@ -1426,12 +1428,12 @@ public class PlayerController : NetworkBehaviour
     }
 
     [Rpc(SendTo.Owner)]
-    private void ShowDamageOwnerRpc(float damage, Vector3 position, int round)
+    private void ShowDamageOwnerRpc(float damage, Vector3 position, int round, bool critical)
     {
         if (!IsOwner || (ConnectionContainer.Instance != null
             && ConnectionContainer.Instance.CurrentRound != round)) return;
 
-        GetComponent<PlayerDamageFeedback>()?.Show(damage, position, round);
+        GetComponent<PlayerDamageFeedback>()?.Show(damage, position, round, critical);
     }
 
     [Rpc(SendTo.ClientsAndHost)]
@@ -1601,26 +1603,45 @@ public class PlayerController : NetworkBehaviour
         // 判定はサーバーだけが行う
         var hits = Physics.OverlapSphere(center, radius, shootableLayers | breakableLayers);
         var hitIds = new HashSet<ulong>();
+        var targets = new List<NetworkObject>();
 
         foreach (var col in hits)
         {
             var target = col.GetComponentInParent<NetworkObject>();
+            var block = col.GetComponentInParent<BreakableBlock>();
+            if (block != null)
+            {
+                if (target != null && target.NetworkObjectId != NetworkObjectId
+                    && hitIds.Add(target.NetworkObjectId)) block.AddDamage(power);
+                continue;
+            }
+            if (target != null) targets.Add(target);
+        }
+
+        // 顔だけに命中した場合も対象に含める。身体との重複は下のID集合で除外する。
+        foreach (var region in CriticalHitRegion.Active)
+        {
+            if (region.Overlaps(center, radius)
+                && (shootableLayers.value & (1 << region.Owner.gameObject.layer)) != 0)
+                targets.Add(region.Owner.NetworkObject);
+        }
+
+        foreach (var target in targets)
+        {
             if (target == null) continue;
             if (target.NetworkObjectId == NetworkObjectId) continue;   // 自分は無視
             if (!hitIds.Add(target.NetworkObjectId)) continue;
 
-            var block = col.GetComponentInParent<BreakableBlock>();
-            if (block != null) { block.AddDamage(power); continue; }   // ここはサーバー実行なので直接呼べる
-
-            if (col.GetComponentInParent<PlayerController>() == null) continue;
+            var victim = target.GetComponent<PlayerController>();
+            if (victim == null) continue;
 
             hitPlayer = true;
 
             if (reductionEffect != null)
                 reductionEffect.Apply(target.GetComponent<PlayerStatus>());
 
-            Vector3 direction = (col.transform.position - center).normalized;
-            this.ApplyKnockback(target.NetworkObjectId, direction, power);
+            Vector3 direction = (target.transform.position - center).normalized;
+            this.ApplyKnockback(target.NetworkObjectId, direction, power, CriticalHitRegion.IsCritical(victim, center));
         }
 
         // 時間切れでは無音。衝突時は敵への命中、または非命中SE設定に従う。

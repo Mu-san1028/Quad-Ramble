@@ -15,6 +15,8 @@ public class DamagePopupUI : MonoBehaviour
     }
 
     [SerializeField] private TextMeshProUGUI label;
+    [Tooltip("クリティカル時だけ表示。文字・色・配置はこのTMPオブジェクトで編集します。")]
+    [SerializeField] private TextMeshProUGUI criticalLabel;
     [SerializeField] private CanvasGroup group;
     [SerializeField] private RectTransform canvasRect;
     [SerializeField] private DamageColorStep[] colorSteps;
@@ -36,7 +38,7 @@ public class DamagePopupUI : MonoBehaviour
     private int round;
     private bool playing;
 
-    public void Play(float damage, Vector3 position, int roundNumber, int sequence)
+    public void Play(float damage, Vector3 position, int roundNumber, int sequence, bool critical = false)
     {
         if (label == null || group == null || canvasRect == null)
         {
@@ -45,6 +47,11 @@ public class DamagePopupUI : MonoBehaviour
         }
 
         worldPosition = position + worldOffset;
+        if (criticalLabel != null)
+        {
+            criticalLabel.raycastTarget = false;
+            criticalLabel.gameObject.SetActive(critical);
+        }
         round = roundNumber;
         viewCamera = Camera.main;
         baseScale = label.rectTransform.localScale;

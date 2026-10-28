@@ -701,7 +701,6 @@ public class PlayerController : NetworkBehaviour
         this.UpdateAimInput();
         if (IsOwner && !this.IsEliminated)
             cameraRig.UpdateAim(isAiming, aimPitch);
-        this.UpdateTrajectoryPreview();
 
         if (controller != null && controller.enabled && this.IsControllable)
         {
@@ -710,6 +709,7 @@ public class PlayerController : NetworkBehaviour
 
         // 体の回転より後に適用する。親の回転を継承させないため
         this.ApplyAimPivot();
+        this.UpdateTrajectoryPreview();
 
         if (IsSpawned && IsOwner)
         {
@@ -1366,7 +1366,19 @@ public class PlayerController : NetworkBehaviour
             ? this.playerItem.CurrentWeapon?.itemData as WeaponData
             : null;
 
-        if (!isAiming || !IsControllable || weaponData == null || weaponData.weaponType != WeaponType.Throw)
+        if (!isAiming || !IsControllable || weaponData == null)
+        {
+            preview.Hide();
+            return;
+        }
+
+        if (weaponData.weaponType == WeaponType.Melee)
+        {
+            preview.DrawMelee(weaponData.attackRange, transform.position, transform.rotation, this.RangeMultiplier);
+            return;
+        }
+
+        if (weaponData.weaponType != WeaponType.Throw)
         {
             preview.Hide();
             return;

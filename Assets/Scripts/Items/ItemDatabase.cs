@@ -36,7 +36,8 @@ public enum Items
     shurikenGold,
     Dagger,
     Axe,
-    GoldenSpear
+    GoldenSpear,
+    Rifle
 }
 
 public class ItemDatabase : MonoBehaviour

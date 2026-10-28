@@ -80,16 +80,7 @@ public class TrajectoryPreview
             return;
         }
 
-        if (!meleeStyleActive)
-        {
-            trajectoryGradient = line.colorGradient;
-            trajectoryWidth = line.widthCurve;
-            trajectoryWidthMultiplier = line.widthMultiplier;
-            trajectoryWorldSpace = line.useWorldSpace;
-            trajectoryLoop = line.loop;
-            meleeStyleActive = true;
-            line.widthCurve = AnimationCurve.Constant(0f, 1f, 1f);
-        }
+        CaptureLineStyle();
 
         line.useWorldSpace = true;
         line.loop = false;
@@ -130,6 +121,37 @@ public class TrajectoryPreview
         }
 
         if (isFan) line.SetPosition(line.positionCount - 1, displayOrigin);
+    }
+
+    /// <summary>全員が見る照準線。中央の十字は所有者にだけ表示する。</summary>
+    public void DrawAimLine(Vector3 start, Vector3 end, Color color, float width, bool owner)
+    {
+        ShowMarker(false);
+        ShowCrosshair(owner);
+        if (line == null) return;
+
+        CaptureLineStyle();
+        line.useWorldSpace = true;
+        line.loop = false;
+        line.startColor = line.endColor = color;
+        line.widthMultiplier = Mathf.Max(0.001f, width);
+        line.positionCount = 2;
+        line.SetPosition(0, start);
+        line.SetPosition(1, end);
+        line.enabled = true;
+    }
+
+    private void CaptureLineStyle()
+    {
+        if (meleeStyleActive) return;
+
+        trajectoryGradient = line.colorGradient;
+        trajectoryWidth = line.widthCurve;
+        trajectoryWidthMultiplier = line.widthMultiplier;
+        trajectoryWorldSpace = line.useWorldSpace;
+        trajectoryLoop = line.loop;
+        meleeStyleActive = true;
+        line.widthCurve = AnimationCurve.Constant(0f, 1f, 1f);
     }
 
     private void RestoreTrajectoryStyle()

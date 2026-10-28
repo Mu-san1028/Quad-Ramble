@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 using UnityEngine.InputSystem;
 using System.Collections;
 using System.Collections.Generic;
@@ -39,6 +39,28 @@ public class PlayerController : NetworkBehaviour
     private readonly NetworkVariable<bool> networkRising = new(writePerm: NetworkVariableWritePermission.Owner);
     private readonly NetworkVariable<Vector2> networkViewAngles = new(writePerm: NetworkVariableWritePermission.Owner);
     private readonly NetworkVariable<bool> networkAiming = new(writePerm: NetworkVariableWritePermission.Owner);
+
+    // 所有者のカメラ補正を含む実際の照準を一括同期する。
+    private struct AimLineState : INetworkSerializable, System.IEquatable<AimLineState>
+    {
+        public bool visible;
+        public int weaponKey;
+        public Vector3 start;
+        public Vector3 end;
+
+        public void NetworkSerialize<T>(BufferSerializer<T> serializer) where T : IReaderWriter
+        {
+            serializer.SerializeValue(ref visible);
+            serializer.SerializeValue(ref weaponKey);
+            serializer.SerializeValue(ref start);
+            serializer.SerializeValue(ref end);
+        }
+
+        public bool Equals(AimLineState other) => visible == other.visible && weaponKey == other.weaponKey
+            && start.Equals(other.start) && end.Equals(other.end);
+    }
+
+    private readonly NetworkVariable<AimLineState> networkAimLine = new(writePerm: NetworkVariableWritePermission.Owner);
 
     private PlayerController spectatorTarget;
     private Transform spectatorAnchor;
@@ -105,6 +127,10 @@ public class PlayerController : NetworkBehaviour
     private float RangeMultiplier => this.status != null ? this.status.RangeMultiplier : 1f;
 
     private Coroutine windupRoutine;   // 溜め中のコルーチン。ラウンドをまたいで残さない
+    private bool fireHeld;
+    private InputAction fireReleaseAction;
+    public bool IsCharging => windupRoutine != null;
+    public float ChargeProgress { get; private set; }
     private int nextProjectileId;
 
 
@@ -231,11 +257,7 @@ public class PlayerController : NetworkBehaviour
         this.aimYaw = transform.eulerAngles.y;
         this.aimPitch = 0f;
 
-        if (this.windupRoutine != null)
-        {
-            StopCoroutine(this.windupRoutine);
-            this.windupRoutine = null;
-        }
+        this.CancelCharge();
 
         if (this.preview != null)
         {
@@ -245,6 +267,8 @@ public class PlayerController : NetworkBehaviour
 
     public override void OnNetworkDespawn()
     {
+        CancelCharge();
+        this.preview?.Hide();
         this.ClearSpectating(false);
         this.eliminated.OnValueChanged -= this.HandleEliminatedChanged;
         this.effects.ClearProjectiles();
@@ -257,6 +281,15 @@ public class PlayerController : NetworkBehaviour
     }
     void OnDisable()
     {
+        if (fireReleaseAction != null)
+        {
+            fireReleaseAction.canceled -= HandleFireReleased;
+            fireReleaseAction = null;
+        }
+        CancelCharge();
+        fireHeld = false;
+        this.preview?.Hide();
+        if (IsSpawned && IsOwner) networkAimLine.Value = default;
         this.ClearSpectating(false);
         SceneManager.sceneLoaded -= RefreshMainCamera;
     }
@@ -365,11 +398,7 @@ public class PlayerController : NetworkBehaviour
             this.isAiming = false;
             this.moveInput = this.lookInput = Vector2.zero;
             this.velocity = this.impact = Vector3.zero;
-            if (this.windupRoutine != null)
-            {
-                StopCoroutine(this.windupRoutine);
-                this.windupRoutine = null;
-            }
+            this.CancelCharge();
             if (this.preview != null) this.preview.Hide();
 
             foreach (var renderer in GetComponentsInChildren<Renderer>(true))
@@ -432,11 +461,7 @@ public class PlayerController : NetworkBehaviour
             impact = Vector3.zero;
             isAiming = false;
 
-            if (windupRoutine != null)
-            {
-                StopCoroutine(windupRoutine);
-                windupRoutine = null;
-            }
+            this.CancelCharge();
 
             if (preview != null) preview.Hide();
         }
@@ -493,11 +518,7 @@ public class PlayerController : NetworkBehaviour
 
         // 溜めをラウンドをまたいで持ち越さない。
         // クールダウンはスロット側にあり、ClearAllWeapons で一緒に消える
-        if (this.windupRoutine != null)
-        {
-            StopCoroutine(this.windupRoutine);
-            this.windupRoutine = null;
-        }
+        this.CancelCharge();
     }
 
     private void ResetFacing(Quaternion rotation)
@@ -588,6 +609,7 @@ public class PlayerController : NetworkBehaviour
 
         if (value.isPressed)
         {
+            this.CancelCharge();
             this.playerItem.SwitchWeapon(1);
         }
     }
@@ -601,45 +623,69 @@ public class PlayerController : NetworkBehaviour
 
         if (value.isPressed)
         {
+            this.CancelCharge();
             this.playerItem.SwitchWeapon(-1);
         }
     }
 
     void OnFire(InputValue value)
     {
-        if (!this.IsControllable) return;
-        if (!value.isPressed) return;
-        if (this.windupRoutine != null) return;      // 溜め中は他の武器も撃てない
-
-        // 溜めている間に持ち替えられても入れ替わらないよう、押した瞬間の武器を捕まえる
-        ItemSlot slot = this.playerItem.CurrentWeapon;
-        if (slot == null || !slot.IsReady) return;   // このスロットのクールダウン中
-
-        var weaponData = slot.itemData as WeaponData;
-        if (weaponData == null) return;
-
-        if (!this.playerItem.TryConsumeAmmo())
+        // SendMessagesではButton型のcanceledが届かないため、解除だけ直接購読する。
+        // 実際に入力された時点の、PlayerInputが所有するActionインスタンスを使う。
+        InputAction action = GetComponent<PlayerInput>().actions.FindAction("Fire", false);
+        if (fireReleaseAction != action)
         {
-            Debug.Log("弾、または武器がありません！");
+            if (fireReleaseAction != null) fireReleaseAction.canceled -= HandleFireReleased;
+            fireReleaseAction = action;
+            if (fireReleaseAction != null) fireReleaseAction.canceled += HandleFireReleased;
+        }
+
+        if (!value.isPressed)
+        {
+            fireHeld = false;
+            CancelCharge();
             return;
         }
 
-        this.BeginMeleeEffect(weaponData);
+        if (fireHeld) return;
+        fireHeld = true;
+        if (!IsControllable || windupRoutine != null || playerItem == null) return;
 
-        // 1周期 = 溜め + クールダウン。スロットごとに持つので他の武器を巻き込まない
-        if(slot.currentAmount > 0) slot.nextFireTime = Time.time + weaponData.attackWindup + weaponData.reloadTime;
+        ItemSlot slot = playerItem.CurrentWeapon;
+        if (slot == null || !slot.IsReady || slot.currentAmount <= 0
+            || slot.itemData is not WeaponData weapon) return;
 
-        // 溜めが無い武器はコルーチンを挟まない。挟むと、本体が同期実行を終えた後に
-        // StartCoroutine の戻り値が windupRoutine を上書きし、二度と撃てなくなる
-        if (weaponData.attackWindup > 0f)
+        if (weapon.attackWindup > 0f)
         {
-            this.windupRoutine = StartCoroutine(this.FireAfterWindup(weaponData));
+            windupRoutine = StartCoroutine(FireAfterWindup(slot, weapon));
+            PlayChargeStartSE(weapon);
         }
         else
-        {
-            this.FireWeapon(weaponData);
-            this.playerItem.DiscardIfEmpty();
-        }
+            CompleteAttack(slot, weapon);
+    }
+
+    private void HandleFireReleased(InputAction.CallbackContext context)
+    {
+        fireHeld = false;
+        CancelCharge();
+    }
+
+    private void CancelCharge()
+    {
+        if (windupRoutine != null) StopCoroutine(windupRoutine);
+        windupRoutine = null;
+        ChargeProgress = 0f;
+    }
+
+    private void CompleteAttack(ItemSlot slot, WeaponData weapon)
+    {
+        if (!IsControllable || playerItem.CurrentWeapon != slot || !slot.IsReady
+            || !playerItem.TryConsumeAmmo()) return;
+
+        slot.nextFireTime = Time.time + Mathf.Max(0f, weapon.reloadTime);
+        BeginMeleeEffect(weapon);
+        FireWeapon(weapon);
+        playerItem.DiscardIfEmpty();
     }
     #endregion
 
@@ -696,7 +742,11 @@ public class PlayerController : NetworkBehaviour
     void Update()
     {
         if (this.IsTitleMode)
+        {
+            this.preview?.Hide();
+            if (IsSpawned && IsOwner && networkAimLine.Value.visible) networkAimLine.Value = default;
             return;
+        }
 
         this.UpdateAimInput();
         if (IsOwner && !this.IsEliminated)
@@ -1112,24 +1162,31 @@ public class PlayerController : NetworkBehaviour
             impact -= hit.normal * impactIntoSurface;
     }
 
-    /// <summary>溜めを待ってから撃つ。attackWindup が 0 より大きい武器だけが通る</summary>
-    private IEnumerator FireAfterWindup(WeaponData weaponData)
+    /// <summary>押し続けた時間だけ溜め、完了時に初めて弾数を消費する。</summary>
+    private IEnumerator FireAfterWindup(ItemSlot slot, WeaponData weapon)
     {
-        this.effects.PlayWindup(gameObject.name, weaponData.attackWindup);
-        yield return new WaitForSeconds(weaponData.attackWindup);
+        float elapsed = 0f;
+        float duration = weapon.attackWindup;
+        ChargeProgress = 0f;
+        while (elapsed < duration)
+        {
+            // 最初に必ずyieldし、StartCoroutineの戻り値による完了状態の上書きを防ぐ。
+            yield return null;
+            if (!fireHeld || !IsControllable || playerItem.CurrentWeapon != slot
+                || slot.itemData != weapon || slot.currentAmount <= 0)
+            {
+                windupRoutine = null;
+                ChargeProgress = 0f;
+                yield break;
+            }
 
-        // 中断して抜ける場合も必ず先に解除する。残すと二度と撃てなくなる
-        this.windupRoutine = null;
+            elapsed += Time.deltaTime;
+            ChargeProgress = Mathf.Clamp01(elapsed / duration);
+        }
 
-        // 溜めている間に脱落・シーン遷移が起きたら撃たない。
-        // GameManager.currentState はサーバーでしか更新されないのでここでは使えない
-        if (!this.IsControllable) yield break;
-        if (RoundManager.Instance == null) yield break;
-
-        this.FireWeapon(weaponData);
-        this.playerItem.DiscardIfEmpty();
+        windupRoutine = null;
+        CompleteAttack(slot, weapon);
     }
-
     private void FireWeapon(WeaponData weaponData)
     {
         effects.PlayShoot(gameObject.name);
@@ -1152,6 +1209,41 @@ public class PlayerController : NetworkBehaviour
 
         if (this.IsSpawned)
             this.RequestMeleeEffectServerRpc(ItemDatabase.Instance.GetKey(weapon));
+    }
+
+    private void PlayChargeStartSE(WeaponData weapon)
+    {
+        if (weapon.chargeStartSE == null) return;
+
+        SEAudio.Instance?.Play(weapon.chargeStartSE, weapon.chargeStartSEVolume);
+        if (IsSpawned && ItemDatabase.Instance != null)
+            RequestChargeStartSEServerRpc(ItemDatabase.Instance.GetKey(weapon),
+                ConnectionContainer.Instance != null ? ConnectionContainer.Instance.CurrentRound : 0);
+    }
+
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Owner)]
+    private void RequestChargeStartSEServerRpc(Items weaponKey, int roundNumber)
+    {
+        var round = RoundManager.Instance;
+        if (IsEliminated || IsTitleMode || round == null || !round.IsSpawned || round.IsIntro
+            || round.IsRoundOver || round.CountdownRemaining > RoundManager.StartDisplayDuration
+            || (ConnectionContainer.Instance != null && ConnectionContainer.Instance.CurrentRound != roundNumber))
+            return;
+
+        if (ItemDatabase.Instance.GetItem(weaponKey) is WeaponData weapon
+            && weapon.attackWindup > 0f && weapon.chargeStartSE != null)
+            PlayChargeStartSEClientRpc(weaponKey, roundNumber);
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void PlayChargeStartSEClientRpc(Items weaponKey, int roundNumber)
+    {
+        // 本人は入力時に再生済み。ホストでも二重に鳴らさない。
+        if (IsOwner || (ConnectionContainer.Instance != null
+            && ConnectionContainer.Instance.CurrentRound != roundNumber)) return;
+
+        if (ItemDatabase.Instance.GetItem(weaponKey) is WeaponData weapon)
+            SEAudio.Instance?.Play(weapon.chargeStartSE, weapon.chargeStartSEVolume);
     }
 
     private void PlayWeaponUseSE(WeaponData weapon, Items weaponKey)
@@ -1195,7 +1287,7 @@ public class PlayerController : NetworkBehaviour
         SwordSwingEffect effect = Instantiate(weapon.meleeEffectPrefab, transform);
         effect.transform.localPosition = weapon.meleeEffectOffset;
         effect.transform.localRotation = Quaternion.Euler(weapon.meleeEffectRotation);
-        effect.Play(this, weapon.attackWindup);
+        effect.Play(this, 0f);
     }
 
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Owner)]
@@ -1374,11 +1466,48 @@ public class PlayerController : NetworkBehaviour
 
     private void UpdateTrajectoryPreview()
     {
-        if (!IsOwner) return;
+        if (!IsOwner)
+        {
+            var state = networkAimLine.Value;
+            if (!IsSpawned || !state.visible || IsEliminated || controlsStopped || IsTitleMode
+                || SceneTransitionUI.InputBlocked || (RoundManager.Instance != null && RoundManager.Instance.IsRoundOver)
+                || ItemDatabase.Instance == null)
+            {
+                preview.Hide();
+                return;
+            }
+
+            if (ItemDatabase.Instance.GetItem((Items)state.weaponKey) is WeaponData remoteWeapon
+                && remoteWeapon.showAimLine && remoteWeapon.weaponType == WeaponType.Throw && remoteWeapon.FliesStraight)
+                preview.DrawAimLine(state.start, state.end, remoteWeapon.aimLineColor, remoteWeapon.aimLineWidth, false);
+            else
+                preview.Hide();
+            return;
+        }
 
         var weaponData = this.playerItem != null
             ? this.playerItem.CurrentWeapon?.itemData as WeaponData
             : null;
+
+        bool showLine = isAiming && IsControllable && weaponData != null
+            && weaponData.weaponType == WeaponType.Throw && weaponData.FliesStraight && weaponData.showAimLine;
+        if (showLine)
+        {
+            Vector3 start = ThrowOrigin;
+            float distance = Mathf.Min(Mathf.Max(0f, weaponData.aimLineMaxDistance),
+                Mathf.Max(0f, weaponData.throwSpeed * RangeMultiplier * trajectoryMaxSteps * TrajectorySimulator.StepDuration));
+            Vector3 end = start + GetThrowDirection(weaponData.launchAngle) * distance;
+            if (TrajectorySimulator.TryGetHit(start, end, TrajectorySettings, out var lineHit)) end = lineHit.point;
+            preview.DrawAimLine(start, end, weaponData.aimLineColor, weaponData.aimLineWidth, true);
+            if (IsSpawned && ItemDatabase.Instance != null)
+                networkAimLine.Value = new AimLineState
+                {
+                    visible = true, weaponKey = (int)ItemDatabase.Instance.GetKey(weaponData), start = start, end = end
+                };
+            return;
+        }
+
+        if (IsSpawned && networkAimLine.Value.visible) networkAimLine.Value = default;
 
         if (!isAiming || !IsControllable || weaponData == null)
         {

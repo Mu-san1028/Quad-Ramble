@@ -20,11 +20,14 @@ public class WeaponData : ItemBase
     public float attackWindup;   // 攻撃するまでの待機時間
 
     [Header("武器SE（未設定なら再生しない）")]
+    [Tooltip("Attack Windupが0より大きい武器で、チャージ開始時に1回再生します。")]
+    public AudioClip chargeStartSE;
+    [Range(0f, 2f)] public float chargeStartSEVolume = 1f;
     public AudioClip useSE;
-    [Range(0f, 1f)] public float useSEVolume = 1f;
+    [Range(0f, 2f)] public float useSEVolume = 1f;
     [Tooltip("近接武器：敵への命中時。投擲武器：爆発時に下の設定に従って1回再生。")]
     public AudioClip hitSE;
-    [Range(0f, 1f)] public float hitSEVolume = 1f;
+    [Range(0f, 2f)] public float hitSEVolume = 1f;
     [Tooltip("投擲武器のみ。ONなら壁・地面などへの衝突でもSEを再生。OFFなら衝突時の爆発範囲に敵がいた場合のみ再生。飛行時間切れでは常に無音。")]
     public bool playExplosionSEOnMiss = true;
 
@@ -45,6 +48,14 @@ public class WeaponData : ItemBase
     /// <summary>重力を受けずまっすぐ飛ぶ武器。射程は弾速で決まり、照準は十字で出す</summary>
     public bool FliesStraight => this.gravityScale <= 0f;
     public float launchAngle = 45f;
+
+    [Header("直進武器：全プレイヤーに見える照準線")]
+    [Tooltip("エイム中だけ照準線を表示します。重力0のThrow武器に適用。")]
+    public bool showAimLine = false;
+    public Color aimLineColor = new Color(1f, 0.15f, 0.1f, 0.8f);
+    [Min(0.001f)] public float aimLineWidth = 0.025f;
+    [Tooltip("実際の弾の飛距離と、この値の短い方まで表示します。")]
+    [Min(0f)] public float aimLineMaxDistance = 100f;
 
     [Header("落ちる弾の向きを飛行方向に合わせるか")]
     [Tooltip("弾のローカル＋Z方向を、飛行中の進行方向へ向けます。")]

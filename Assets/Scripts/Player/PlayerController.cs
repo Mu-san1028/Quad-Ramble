@@ -1317,7 +1317,12 @@ public class PlayerController : NetworkBehaviour
         victim.lastKnockoutAttacker = this;
 
         // 先に疲労を蓄積し、その値を含めた倍率で吹き飛ばす
+        float previousFatigue = targetStatus != null ? targetStatus.Fatigue : 0f;
         targetStatus?.AddFatigue(power);
+        float damage = targetStatus != null ? targetStatus.Fatigue - previousFatigue : 0f;
+        if (damage > 0f)
+            ShowDamageOwnerRpc(damage, victim.transform.position,
+                ConnectionContainer.Instance != null ? ConnectionContainer.Instance.CurrentRound : 0);
         float multiplier = targetStatus != null ? targetStatus.KnockbackMultiplier : 1f;
 
         Vector3 force = direction.normalized * power * multiplier;
@@ -1326,6 +1331,15 @@ public class PlayerController : NetworkBehaviour
         Debug.Log($"[Knockback] power={power}, fatigue={targetStatus?.Fatigue}, multiplier={multiplier:F2}");
 
         ApplyKnockbackClientRpc(targetId, force);
+    }
+
+    [Rpc(SendTo.Owner)]
+    private void ShowDamageOwnerRpc(float damage, Vector3 position, int round)
+    {
+        if (!IsOwner || (ConnectionContainer.Instance != null
+            && ConnectionContainer.Instance.CurrentRound != round)) return;
+
+        GetComponent<PlayerDamageFeedback>()?.Show(damage, position, round);
     }
 
     [Rpc(SendTo.ClientsAndHost)]

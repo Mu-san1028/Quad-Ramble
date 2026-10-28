@@ -37,7 +37,8 @@ public enum Items
     Dagger,
     Axe,
     GoldenSpear,
-    Rifle
+    Rifle,
+    GoldRifle
 }
 
 public class ItemDatabase : MonoBehaviour

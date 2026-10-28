@@ -94,7 +94,7 @@ public class SEAudio : MonoBehaviour
         if (!this.seEnabled || this.source == null || clip == null)
             return;
 
-        this.source.PlayOneShot(clip, Mathf.Clamp01(volume));
+        this.source.PlayOneShot(clip, Mathf.Clamp(volume, 0f, 2f));
     }
 
     private static bool ReadSEEnabled()

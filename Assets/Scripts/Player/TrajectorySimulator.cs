@@ -10,6 +10,12 @@ public static class TrajectorySimulator
     public const float StepDuration = 0.05f;
     private static readonly RaycastHit[] hitBuffer = new RaycastHit[16];
 
+    public struct ProjectileHit
+    {
+        public Vector3 point;
+        public float distance;
+    }
+
     public struct Settings
     {
         public LayerMask groundLayers;
@@ -33,7 +39,7 @@ public static class TrajectorySimulator
         for (int i = 0; i < settings.maxSteps; i++)
         {
             Vector3 next = PositionAtTime(start, vel, gravity, flightTime + dt);
-            if (TryGetHit(pos, next, settings, out RaycastHit hit))
+            if (TryGetHit(pos, next, settings, out var hit))
             {
                 float distance = Vector3.Distance(pos, next);
                 flightTime += distance > 0f ? dt * hit.distance / distance : 0f;
@@ -55,7 +61,7 @@ public static class TrajectorySimulator
     }
 
     // 床とプレイヤーのうち最も近い実体を採用し、自分とコースのトリガーは無視する。
-    public static bool TryGetHit(Vector3 start, Vector3 end, in Settings settings, out RaycastHit nearest)
+    public static bool TryGetHit(Vector3 start, Vector3 end, in Settings settings, out ProjectileHit nearest)
     {
         nearest = default;
         Vector3 displacement = end - start;
@@ -76,7 +82,19 @@ public static class TrajectorySimulator
             var netObj = hit.collider.GetComponentInParent<NetworkObject>();
             if (netObj != null && netObj.NetworkObjectId == settings.ignoreNetworkObjectId) continue;
             if (found && hit.distance >= nearest.distance) continue;
-            nearest = hit;
+            nearest = new ProjectileHit { point = hit.point, distance = hit.distance };
+            found = true;
+        }
+
+        // 顔は通常の物理判定へ追加せず、弾道に対してだけ検出する。手前の壁を優先する。
+        foreach (var region in CriticalHitRegion.Active)
+        {
+            if (!region.IsValid || region.Owner.NetworkObjectId == settings.ignoreNetworkObjectId
+                || (settings.blockerLayers.value & (1 << region.Owner.gameObject.layer)) == 0) continue;
+            if (!region.Raycast(start, displacement / distance, distance, out float faceDistance)
+                || (found && faceDistance >= nearest.distance)) continue;
+
+            nearest = new ProjectileHit { point = start + displacement / distance * faceDistance, distance = faceDistance };
             found = true;
         }
         return found;

@@ -36,7 +36,8 @@ public enum Items
     shurikenGold,
     Dagger,
     Axe,
-    GoldenSpear
+    GoldenSpear,
+    Rifle
 }
 
 public class ItemDatabase : MonoBehaviour
@@ -49,6 +50,10 @@ public class ItemDatabase : MonoBehaviour
     }
 
     [SerializeField] private ItemEntry[] items;
+
+    [Header("全武器共通のクリティカル設定")]
+    [SerializeField, Min(1f)] private float criticalDamageMultiplier = 1.5f;
+    public float CriticalDamageMultiplier => Mathf.Max(1f, criticalDamageMultiplier);
 
     public static ItemDatabase Instance { get; private set; }
 

@@ -46,6 +46,7 @@ public class DropOutSensor : MonoBehaviour
 
         if (GameManager.Instance == null) return;
         if (GameManager.Instance.currentState != GameState.Playing) return;
+        if (player == null || player.IsEliminated) return;
 
         // 記録があれば、脱落させずに引き戻す
         if (SavePointRegistry.TryConsumeRespawn(player, respawnLimit, respawnAtStart, out Vector3 position, out Quaternion rotation))
@@ -55,7 +56,8 @@ public class DropOutSensor : MonoBehaviour
         }
 
         if (PlayerManager.Instance == null) return;
-        PlayerManager.Instance.DropOut(player);
+        player.ConfirmFallKnockout();
         player.Eliminate();
+        PlayerManager.Instance.DropOut(player);
     }
 }

@@ -65,6 +65,7 @@ public class BombSensorField : MonoBehaviour
         BoxCollider territoryCollider = GetComponent<BoxCollider>();
         if (territoryCollider == null) return;
 
+<<<<<<< HEAD
         // 空き陣地はIsTriggerを外し、爆弾が物理的に通過できないようにする。
         territoryCollider.isTrigger = hasOwner;
     }
@@ -75,5 +76,9 @@ public class BombSensorField : MonoBehaviour
 
         // 爆発のたびに順位低下回数を記録し、終了時の配点に反映する。
         BombPushRoundScoring.AddRankDrop(territoryOwner, rankDropPerExplosion);
+=======
+        player.Eliminate();
+        PlayerManager.Instance.DropOut(player);
+>>>>>>> ea7698088b80d4267ca56c5bb667ddb80353610e
     }
 }

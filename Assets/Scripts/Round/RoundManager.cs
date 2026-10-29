@@ -1,12 +1,23 @@
 using UnityEngine;
 using System.Collections;
+using System.Collections.Generic;
 using Unity.Netcode;
+using UnityEngine.SceneManagement;
 
 public class RoundManager : NetworkBehaviour
 {
     public static RoundManager Instance { get; private set; }
     public const float StartDisplayDuration = 1f;
     private bool playingStarted;
+    private NetworkSceneManager loadingSceneManager;
+    private readonly NetworkVariable<bool> spawnReady = new(false);
+    public bool IsReady => this.spawnReady.Value;
+    private readonly NetworkVariable<double> presentationStart = new(-1d);
+    public bool PresentationStarted => this.IsReady && this.presentationStart.Value >= 0d
+        && NetworkManager.ServerTime.Time >= this.presentationStart.Value
+        && !SceneTransitionUI.PresentationBlocked;
+    public float IntroElapsed => this.PresentationStarted
+        ? (float)(NetworkManager.ServerTime.Time - this.presentationStart.Value) : 0f;
 
     [Header("ラウンド設定")]
     [SerializeField] private float roundDuration = 90f;     // このステージの制限時間
@@ -14,6 +25,8 @@ public class RoundManager : NetworkBehaviour
 
     [Header("このラウンドに出現するアイテム")]
     [SerializeField] private Items[] availableItems;
+    [Tooltip("ItemBox_rareから抽選するアイテム。空の場合は取得できません。")]
+    [SerializeField] private Items[] rareItems = new Items[0];
     [SerializeField] private Items[] blockDropItems;
 
     [Header("ラウンドの情報")]
@@ -35,6 +48,7 @@ public class RoundManager : NetworkBehaviour
 
     public Items[] BlockDropItems => this.blockDropItems;
     public Items[] AvailableItems => this.availableItems;
+    public Items[] RareItems => this.rareItems;
 
     private PlayerSpawner playerSpawner;
     private RoundScoring scoring;
@@ -43,8 +57,14 @@ public class RoundManager : NetworkBehaviour
     [SerializeField] private float introDuration = 5f;
     private readonly NetworkVariable<float> introRemaining = new ();
     public float IntroRemaining => this.introRemaining.Value;
-    public bool IsIntro => this.introRemaining.Value > 0f;
+    public bool IsIntro => !this.PresentationStarted || this.introRemaining.Value > 0f;
     private readonly WaitForSeconds beforeSceneTransition = new (3);
+
+    public RoundScoreEntry[] RoundResults { get; private set; }
+    public double ResultStartTime { get; private set; }
+    public Vector4 ResultTimings { get; private set; }
+    public bool HideFinishForResults => this.RoundResults != null
+        && NetworkManager.ServerTime.Time >= this.ResultStartTime + this.ResultTimings.x;
 
     // サーバーだけが書き込み、全員が読む
     private readonly NetworkVariable<float> remainingTime = new ();
@@ -66,9 +86,49 @@ public class RoundManager : NetworkBehaviour
         this.scoring = FindAnyObjectByType<RoundScoring>();
 
         GameManager.Instance.SetState(GameState.Countdown);
+
+        // Titleが残っているクライアントへ、先にテレポートを送らない。
+        if (NetworkManager.NetworkConfig.EnableSceneManagement && GameManager.Instance.CurrentRound > 0)
+        {
+            this.loadingSceneManager = NetworkManager.SceneManager;
+            this.loadingSceneManager.OnLoadEventCompleted += this.HandleLoadCompleted;
+            return;
+        }
+
+        // ステージを直接開いてホストを開始した場合はLoadイベントが発生しない。
+        this.InitializePlayers();
+    }
+
+    private void HandleLoadCompleted(string sceneName, LoadSceneMode mode,
+        List<ulong> completed, List<ulong> timedOut)
+    {
+        if (!IsServer || !IsSpawned || sceneName != gameObject.scene.name)
+            return;
+
+        this.UnsubscribeSceneLoading();
+
+        // 読み込みに失敗した端末をTitleに残したまま参加させない。
+        foreach (ulong clientId in timedOut)
+        {
+            Debug.LogWarning($"[RoundSpawn] Scene load timed out: ClientId={clientId}", this);
+            if (clientId != NetworkManager.ServerClientId && NetworkManager.ConnectedClients.ContainsKey(clientId))
+                NetworkManager.DisconnectClient(clientId);
+        }
+
+        this.InitializePlayers(completed);
+    }
+
+    private void InitializePlayers(List<ulong> loadedClients = null)
+    {
+        if (!IsServer || !IsSpawned || this.IsReady)
+            return;
+
         PlayerManager.Instance.ResetPlayers();
 
         var activePlayers = PlayerManager.Instance.Players;
+        activePlayers.RemoveAll(player => player == null || !player.IsSpawned
+            || (loadedClients != null && !loadedClients.Contains(player.OwnerClientId)));
+
         for (int i = 0; i < activePlayers.Count; i++)
         {
             this.playerSpawner.SpawnPlayer(activePlayers[i], i);
@@ -77,24 +137,50 @@ public class RoundManager : NetworkBehaviour
 
         this.remainingTime.Value = this.roundDuration;
         this.countdownRemaining.Value = this.countdownDuration;
+        var introCamera = FindAnyObjectByType<StageIntroCamera>();
+        if (introCamera != null)
+            this.introDuration = Mathf.Max(this.introDuration, introCamera.RouteDuration);
         this.introRemaining.Value = this.introDuration;
+        this.spawnReady.Value = true;
 
+        if (ConnectionContainer.Instance == null || !ConnectionContainer.Instance.IsTransitioning)
+            this.BeginPresentation();
+    }
+
+    /// <summary>全端末の準備完了後、暗転解除と紹介の共通開始時刻を配信する。</summary>
+    public void BeginPresentation(double startAt = -1d)
+    {
+        if (!IsServer || !this.IsReady || this.presentationStart.Value >= 0d) return;
+        this.presentationStart.Value = startAt >= 0d ? startAt : NetworkManager.ServerTime.Time + 0.25d;
+    }
+
+    private void UnsubscribeSceneLoading()
+    {
+        if (this.loadingSceneManager == null)
+            return;
+
+        this.loadingSceneManager.OnLoadEventCompleted -= this.HandleLoadCompleted;
+        this.loadingSceneManager = null;
     }
 
     public override void OnNetworkDespawn()
     {
+        this.UnsubscribeSceneLoading();
         if (Instance == this) Instance = null;
     }
 
     void Update()
     {
-        if (!IsServer || this.IsRoundOver) return;
+        if (!IsServer || !this.PresentationStarted || this.IsRoundOver) return;
 
         if (this.introRemaining.Value > 0f)
         {
-            this.introRemaining.Value = Mathf.Max(0f, this.introRemaining.Value - Time.deltaTime);
+            this.introRemaining.Value = Mathf.Max(0f, this.introDuration - this.IntroElapsed);
             return;
         }
+
+        // 遅い端末の暗転解除が残っている間は試合を始めない。
+        if (ConnectionContainer.Instance != null && ConnectionContainer.Instance.IsTransitioning) return;
 
         // 最後の1秒はStart表示を残したままプレイする。
         if (this.countdownRemaining.Value > 0f)
@@ -132,7 +218,7 @@ public class RoundManager : NetworkBehaviour
     
     public void EndRound()
     {
-        if (!IsServer || this.IsRoundOver) return;
+        if (!IsServer || !this.IsReady || this.IsRoundOver) return;
         StartCoroutine(this.EndRoundRoutine("Finish !"));
     }
 
@@ -149,14 +235,65 @@ public class RoundManager : NetworkBehaviour
         }
 
         GameManager.Instance.SetState(GameState.Countdown);
+        var results = new List<RoundScoreEntry>();
+        var roster = ConnectionContainer.Instance;
+        foreach (var player in PlayerManager.Instance.AllPlayers)
+        {
+            if (player == null) continue;
+            var connection = roster != null ? roster.GetConnection(player.OwnerClientId) : null;
+            if (connection == null) continue;
+
+            results.Add(new RoundScoreEntry
+            {
+                ClientId = connection.ClientId,
+                PlayerId = connection.Id,
+                Before = connection.Score
+            });
+        }
+
         if (this.scoring != null) this.scoring.AwardPoints();
         else this.AwardPoints();
+
+        for (int i = 0; i < results.Count; i++)
+        {
+            var entry = results[i];
+            entry.After = roster.GetConnection(entry.ClientId)?.Score ?? entry.Before;
+            results[i] = entry;
+        }
+
+        var resultUI = FindAnyObjectByType<RoundResultUI>();
+        double resultEndTime = 0;
+        if (resultUI != null && resultUI.isActiveAndEnabled && results.Count > 0)
+        {
+            Vector4 timings = resultUI.Timings;
+            double startTime = NetworkManager.ServerTime.Time + 0.2;
+            resultEndTime = startTime + timings.x + timings.y + timings.z + timings.w + resultUI.HoldDuration;
+            this.ShowRoundResultsRpc(results.ToArray(), startTime, timings);
+        }
+
+        ConnectionContainer.Instance?.BroadcastScores();
         Debug.Log(message);
 
-        yield return this.beforeSceneTransition;
+        if (resultEndTime > 0)
+        {
+            while (IsSpawned && NetworkManager.ServerTime.Time < resultEndTime)
+                yield return null;
+        }
+        else
+        {
+            yield return this.beforeSceneTransition;
+        }
 
-        if (!IsServer) yield break;
+        if (!IsServer || !IsSpawned) yield break;
         GameManager.Instance.LoadNextScene();
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void ShowRoundResultsRpc(RoundScoreEntry[] entries, double startTime, Vector4 timings)
+    {
+        this.RoundResults = entries;
+        this.ResultStartTime = startTime;
+        this.ResultTimings = timings;
     }
 
     private void AwardPoints()

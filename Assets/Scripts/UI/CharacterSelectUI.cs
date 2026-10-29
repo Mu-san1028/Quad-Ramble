@@ -15,6 +15,7 @@ public class CharacterSelectUI : MonoBehaviour
     [SerializeField] private CharacterIconButton iconPrefab;
     [SerializeField] private Button readyButton;
     [SerializeField] private TextMeshProUGUI readyLabel;
+    [SerializeField] private Button leaveRoomButton;
 
     private readonly List<CharacterIconButton> icons = new();
     private int pendingCharacterIndex = -1;
@@ -191,6 +192,9 @@ public class CharacterSelectUI : MonoBehaviour
         if (IsAvailable(this.readyButton) && selected == this.readyButton.gameObject)
             return;
 
+        if (IsAvailable(this.leaveRoomButton) && selected == this.leaveRoomButton.gameObject)
+            return;
+
         this.SelectFirstAvailable();
     }
 
@@ -213,7 +217,8 @@ public class CharacterSelectUI : MonoBehaviour
                 mode = Navigation.Mode.Explicit,
                 selectOnLeft = this.FindIcon(button, Vector2.left),
                 selectOnRight = this.FindIcon(button, Vector2.right),
-                selectOnUp = this.FindIcon(button, Vector2.up),
+                selectOnUp = this.FindIcon(button, Vector2.up)
+                    ?? (IsAvailable(this.leaveRoomButton) ? this.leaveRoomButton : null),
                 selectOnDown = this.FindIcon(button, Vector2.down)
                     ?? (IsAvailable(this.readyButton) ? this.readyButton : null)
             };
@@ -224,7 +229,20 @@ public class CharacterSelectUI : MonoBehaviour
             this.readyButton.navigation = new Navigation
             {
                 mode = Navigation.Mode.Explicit,
-                selectOnUp = this.FindIcon(this.readyButton, Vector2.up)
+                selectOnUp = this.FindIcon(this.readyButton, Vector2.up),
+                selectOnRight = IsAvailable(this.leaveRoomButton) ? this.leaveRoomButton : null
+            };
+        }
+
+        if (this.leaveRoomButton != null)
+        {
+            this.leaveRoomButton.navigation = new Navigation
+            {
+                mode = Navigation.Mode.Explicit,
+                selectOnLeft = IsAvailable(this.readyButton) ? this.readyButton
+                    : this.FindIcon(this.leaveRoomButton, Vector2.left),
+                selectOnUp = this.FindIcon(this.leaveRoomButton, Vector2.up),
+                selectOnDown = this.FindIcon(this.leaveRoomButton, Vector2.left)
             };
         }
     }
@@ -246,7 +264,7 @@ public class CharacterSelectUI : MonoBehaviour
             Vector3 offset = rect.TransformPoint(rect.rect.center) - origin;
             float forward = Vector3.Dot(worldDirection, offset);
             if (forward <= 0f) continue;
-            if (source != this.readyButton
+            if (source != this.readyButton && source != this.leaveRoomButton
                 && (offset - worldDirection * forward).sqrMagnitude > 1f)
                 continue;
 

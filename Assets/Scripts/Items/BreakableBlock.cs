@@ -136,6 +136,9 @@ public class BreakableBlock : NetworkBehaviour
         // 壊れた瞬間だけ、見た目が消えるのを破壊アニメの後まで遅らせる
         if (previous == BlockState.Intact && current != BlockState.Intact)
         {
+            // 同期された破壊の瞬間だけ再生。途中参加時の状態反映では鳴らさない。
+            if (IsClient) SEAudio.Instance?.Play(SEType.BlockBreak);
+
             this.PlayBreakThenHide();
         }
     }

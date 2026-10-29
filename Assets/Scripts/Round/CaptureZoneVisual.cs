@@ -69,7 +69,7 @@ public sealed class CaptureZoneVisual : MonoBehaviour
 
     private void Refresh(CaptureZoneSnapshot state)
     {
-        SetVisible(zone && zone.IsAreaActive);
+        SetVisible(zone && zone.IsSpawned && zone.IsAreaActive);
 
         Color color = neutral;
         if (state.State == CaptureZoneState.Occupied)

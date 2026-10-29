@@ -34,11 +34,27 @@ public class PlayerStatus : NetworkBehaviour
     private readonly NetworkVariable<StatBlock> bonuses = new ();
     private readonly NetworkVariable<StackBlock> stackCounts = new ();
 
+    private readonly NetworkVariable<float> slowSpeedMultiplier = new(1f);
+    private readonly NetworkVariable<uint> slowApplicationCount = new();
+    private float slowRemaining;
+
+    private readonly NetworkVariable<float> jumpReductionMultiplier = new(1f);
+    private readonly NetworkVariable<float> powerReductionMultiplier = new(1f);
+    private readonly NetworkVariable<uint> jumpReductionCount = new();
+    private readonly NetworkVariable<uint> powerReductionCount = new();
+    private float jumpReductionRemaining;
+    private float powerReductionRemaining;
+
+    public float JumpReductionMultiplier => this.jumpReductionMultiplier.Value;
+
+    public float SlowSpeedMultiplier => this.slowSpeedMultiplier.Value;
+    public uint SlowApplicationCount => this.slowApplicationCount.Value;
+
     public float SpeedBonus => this.bonuses.Value.Speed;
     public float JumpBonus  => this.bonuses.Value.Jump;
 
     /// <summary>武器の威力にかける倍率。強化が無ければ 1</summary>
-    public float PowerMultiplier => 1f + this.bonuses.Value.Power;
+    public float PowerMultiplier => (1f + this.bonuses.Value.Power) * this.powerReductionMultiplier.Value;
 
     /// <summary>攻撃範囲・爆発半径・弾速にかける倍率。強化が無ければ 1</summary>
     public float RangeMultiplier => 1f + this.bonuses.Value.Range;
@@ -60,6 +76,16 @@ public class PlayerStatus : NetworkBehaviour
     {
         if (!IsServer) return;
 
+        this.UpdateReduction(ref this.jumpReductionRemaining, this.jumpReductionMultiplier);
+        this.UpdateReduction(ref this.powerReductionRemaining, this.powerReductionMultiplier);
+
+        if (this.slowRemaining > 0f)
+        {
+            this.slowRemaining = Mathf.Max(0f, this.slowRemaining - Time.deltaTime);
+            if (this.slowRemaining <= 0f)
+                this.slowSpeedMultiplier.Value = 1f;
+        }
+
         bool changed = false;
         for (int i = this.effects.Count - 1; i >= 0; i--)
         {
@@ -76,6 +102,79 @@ public class PlayerStatus : NetworkBehaviour
 
         if (changed) this.Recalculate();
     }
+
+    /// <summary>重ね掛けせず、最後に命中した減速の倍率と持続時間に更新する。</summary>
+    public void ApplySlow(float speedMultiplier, float duration)
+    {
+        if (!IsServer || !IsSpawned || duration <= 0f || speedMultiplier >= 1f
+            || float.IsNaN(duration) || float.IsInfinity(duration)
+            || float.IsNaN(speedMultiplier) || float.IsInfinity(speedMultiplier))
+            return;
+
+        this.slowSpeedMultiplier.Value = Mathf.Clamp(speedMultiplier, 0.1f, 1f);
+        this.slowRemaining = duration;
+
+        // 同じ倍率での再命中も、所有者の通知UIへ伝える。
+        this.slowApplicationCount.Value = unchecked(this.slowApplicationCount.Value + 1u);
+    }
+
+    private void UpdateReduction(ref float remaining, NetworkVariable<float> multiplier)
+    {
+        if (remaining <= 0f) return;
+
+        remaining = Mathf.Max(0f, remaining - Time.deltaTime);
+        if (remaining <= 0f) multiplier.Value = 1f;
+    }
+
+
+    /// <summary>種類ごとに独立した弱体化。強化の基礎値や段数は変更しない。</summary>
+    public void ApplyReduction(UpgradeKind kind, float multiplier, float duration)
+    {
+        if (!IsServer || !IsSpawned || duration <= 0f || multiplier >= 1f
+            || float.IsNaN(duration) || float.IsInfinity(duration)
+            || float.IsNaN(multiplier) || float.IsInfinity(multiplier))
+            return;
+
+        multiplier = Mathf.Clamp(multiplier, 0.1f, 1f);
+
+        switch (kind)
+        {
+            case UpgradeKind.Speed:
+                this.ApplySlow(multiplier, duration);
+                break;
+
+            case UpgradeKind.Jump:
+                this.jumpReductionMultiplier.Value = multiplier;
+                this.jumpReductionRemaining = duration;
+                this.jumpReductionCount.Value = unchecked(this.jumpReductionCount.Value + 1u);
+                break;
+
+            case UpgradeKind.Power:
+                this.powerReductionMultiplier.Value = multiplier;
+                this.powerReductionRemaining = duration;
+                this.powerReductionCount.Value = unchecked(this.powerReductionCount.Value + 1u);
+                break;
+        }
+    }
+
+
+    public float GetReductionMultiplier(UpgradeKind kind) => kind switch
+    {
+        UpgradeKind.Speed => this.SlowSpeedMultiplier,
+        UpgradeKind.Jump => this.jumpReductionMultiplier.Value,
+        UpgradeKind.Power => this.powerReductionMultiplier.Value,
+        _ => 1f,
+    };
+
+
+    public uint GetReductionCount(UpgradeKind kind) => kind switch
+    {
+        UpgradeKind.Speed => this.SlowApplicationCount,
+        UpgradeKind.Jump => this.jumpReductionCount.Value,
+        UpgradeKind.Power => this.powerReductionCount.Value,
+        _ => 0u,
+    };
+
 
     /// <summary>一時効果アイテム</summary>
     public void AddTemporary(ConsumableItemData data)
@@ -159,6 +258,12 @@ public class PlayerStatus : NetworkBehaviour
         if (!IsServer) return;
 
         this.effects.Clear();
+        this.slowRemaining = 0f;
+        this.slowSpeedMultiplier.Value = 1f;
+        this.jumpReductionRemaining = 0f;
+        this.powerReductionRemaining = 0f;
+        this.jumpReductionMultiplier.Value = 1f;
+        this.powerReductionMultiplier.Value = 1f;
         this.stackCounts.Value = default;
         this.fatigue.Value = 0f;
         this.roundScore.Value = 0;

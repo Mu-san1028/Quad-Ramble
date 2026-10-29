@@ -10,6 +10,8 @@ public class SwordSwingEffect : MonoBehaviour
     [Header("振り方")]
     [SerializeField] private float startAngle = -70f;
     [SerializeField] private float endAngle = 70f;
+    [Tooltip("ローカル回転軸。横振りはY、縦振りはX。")]
+    [SerializeField] private Vector3 swingAxis = Vector3.up;
     [SerializeField, Min(0.01f)] private float followThroughTime = 0.15f;
 
     [Header("エフェクトが消えるまでの余韻")]
@@ -60,14 +62,17 @@ public class SwordSwingEffect : MonoBehaviour
         while (elapsed < duration)
         {
             this.swingPivot.localRotation = baseRotation
-                * Quaternion.Euler(0f, Mathf.Lerp(from, to, elapsed / duration), 0f);
+                * Quaternion.AngleAxis(Mathf.Lerp(from, to, elapsed / duration), this.RotationAxis);
 
             elapsed += Time.deltaTime;
             yield return null;
         }
 
-        this.swingPivot.localRotation = baseRotation * Quaternion.Euler(0f, to, 0f);
+        this.swingPivot.localRotation = baseRotation * Quaternion.AngleAxis(to, this.RotationAxis);
     }
+
+    private Vector3 RotationAxis => this.swingAxis.sqrMagnitude > 0.0001f
+        ? this.swingAxis.normalized : Vector3.up;
 
     private void Update()
     {

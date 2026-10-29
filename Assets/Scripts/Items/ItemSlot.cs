@@ -6,7 +6,7 @@ public class ItemSlot
 {
     public ItemBase itemData;  // 大元の設計図（ScriptableObject. 書き換えない）
     public int currentAmount;  // 実際の所持数（ここを足し引きする）
-    public float nextFireTime; // これより前は撃てない（溜め＋クールダウン）
+    public float nextFireTime; // 発射後のクールダウンが終了する時刻
 
     /// <summary>このスロットの武器が撃てるか</summary>
     public bool IsReady => Time.time >= this.nextFireTime;
@@ -19,7 +19,7 @@ public class ItemSlot
             var weapon = this.itemData as WeaponData;
             if (weapon == null) return 0f;
 
-            float cycle = weapon.attackWindup + weapon.reloadTime;
+            float cycle = weapon.reloadTime;
             if (cycle <= 0f) return 0f;
 
             float remaining = this.nextFireTime - Time.time;

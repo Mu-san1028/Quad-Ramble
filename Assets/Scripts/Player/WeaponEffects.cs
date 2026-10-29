@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
@@ -8,6 +9,7 @@ using UnityEngine;
 [System.Serializable]
 public class WeaponEffects
 {
+    private readonly Dictionary<int, GameObject> projectiles = new();
     // TODO: 発砲音（AudioSource）・銃口の光（ParticleSystem）・爆発エフェクトをここに持たせる
 
     public void PlayShoot(string ownerName)
@@ -28,19 +30,18 @@ public class WeaponEffects
     }
 
     /// <summary>弾が飛ぶ見た目。コルーチンの起動は呼び出し側に任せる</summary>
-    public IEnumerator Projectile(GameObject prefab, Vector3 start, Vector3 vel, float duration, float gravity, Vector3 landing, bool faceFlightDirection)
+    public IEnumerator Projectile(int projectileId, GameObject prefab, Vector3 start, Vector3 vel, float duration, float gravity, bool faceFlightDirection)
     {
         Quaternion initialRotation = (vel.sqrMagnitude > 0.0001f) ? Quaternion.LookRotation(vel) : Quaternion.identity;
         var obj = Object.Instantiate(prefab, start, initialRotation);
+        this.projectiles[projectileId] = obj;
         float elapsed = 0f;
 
         while (elapsed < duration)
         {
             if (obj == null) yield break;
             elapsed = Mathf.Min(elapsed + Time.deltaTime, duration);
-            Vector3 pos = start + vel * elapsed;
-            pos.y -= 0.5f * gravity * elapsed * elapsed;
-            obj.transform.position = pos;
+            obj.transform.position = TrajectorySimulator.PositionAtTime(start, vel, gravity, elapsed);
 
             if (faceFlightDirection)
             {
@@ -55,12 +56,17 @@ public class WeaponEffects
             yield return null;
         }
 
-        if (obj == null) yield break;
+        // 寿命到達後も、サーバーから確定した着弾位置が届くまで待つ。
+    }
 
-        // 衝突の有無にかかわらず、サーバーの爆発判定と同じ位置で演出する。
-        obj.transform.position = landing;
+    public void FinishProjectile(int projectileId, Vector3 position, bool explode)
+    {
+        if (!this.projectiles.TryGetValue(projectileId, out var obj)) return;
+        this.projectiles.Remove(projectileId);
+        if (obj == null) return;
+        obj.transform.position = position;
 
-        if (obj.TryGetComponent<BombPushBomb>(out var bomb))
+        if (explode && obj.TryGetComponent<BombPushBomb>(out var bomb))
         {
             bomb.Explode();
         }
@@ -68,5 +74,12 @@ public class WeaponEffects
         {
             Object.Destroy(obj);
         }
+    }
+
+    public void ClearProjectiles()
+    {
+        foreach (var obj in this.projectiles.Values)
+            if (obj != null) Object.Destroy(obj);
+        this.projectiles.Clear();
     }
 }

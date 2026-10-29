@@ -18,6 +18,11 @@ public class PlayerAppearance : NetworkBehaviour
     private int appliedIndex = -1;
     private Quaternion initialModelRootRotation = Quaternion.identity;
 
+    public void SetEliminated(bool eliminated)
+    {
+        if (this.currentModel != null) this.currentModel.SetActive(!eliminated);
+    }
+
     private void Awake()
     {
         if (this.playerAnimator == null) this.playerAnimator = GetComponentInParent<PlayerAnimator>();
@@ -107,5 +112,6 @@ public class PlayerAppearance : NetworkBehaviour
         this.ResetTitleModelRotation();
 
         this.appliedIndex = index;
+        this.SetEliminated(GetComponentInParent<PlayerController>()?.IsEliminated == true);
     }
 }

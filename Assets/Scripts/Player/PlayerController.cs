@@ -612,11 +612,23 @@ public class PlayerController : NetworkBehaviour
         lookInput = value.Get<Vector2>();
     }
 
+    // ラウンドの開始演出・カウントダウン・結果表示中は武器を切り替えない。
+    private bool CanSwitchWeapon
+    {
+        get
+        {
+            var round = RoundManager.Instance;
+            return this.IsControllable && round != null && round.IsSpawned && round.IsReady
+                && !round.IsIntro && !round.IsRoundOver
+                && round.CountdownRemaining <= RoundManager.StartDisplayDuration;
+        }
+    }
+
     void OnNextWeapon(InputValue value)
     {
         if (value.isPressed && this.TrySwitchSpectator(1)) return;
 
-        if (!this.IsControllable)
+        if (!this.CanSwitchWeapon)
             return;
 
         if (value.isPressed)
@@ -630,7 +642,7 @@ public class PlayerController : NetworkBehaviour
     {
         if (value.isPressed && this.TrySwitchSpectator(-1)) return;
 
-        if (!this.IsControllable)
+        if (!this.CanSwitchWeapon)
             return;
 
         if (value.isPressed)

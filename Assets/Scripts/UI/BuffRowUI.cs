@@ -26,6 +26,7 @@ public class BuffRowUI : MonoBehaviour
     [SerializeField] private Color slowTextColor = new Color(1f, 0.15f, 0.15f);
     private string labelWithoutSlow;
     private bool showingSlow;
+    public bool IsShowingSlow => this.showingSlow && this.gameObject.activeSelf;
 
     [Header("獲得時の強調")]
     [SerializeField, Min(0.01f)] private float fadeInDuration = 0.15f;
@@ -87,7 +88,7 @@ public class BuffRowUI : MonoBehaviour
 
     public void Setup(string displayName, Color color, int count)
     {
-        this.ClearSlow();
+        this.ClearSlow(false);
         this.label.text = displayName;
         this.rowColor = color;
 
@@ -143,6 +144,9 @@ public class BuffRowUI : MonoBehaviour
         if (!this.isActiveAndEnabled || this.slideRoot == null)
             return;
 
+        // 効果の終了はPlayerStatusから通知されるため、固定時間での退場を止める。
+        this.StopHide();
+
         // 減速の被弾で、既存の強化区画を獲得時のように光らせない。
         this.SetCount(count);
 
@@ -156,7 +160,7 @@ public class BuffRowUI : MonoBehaviour
     }
 
 
-    public void ClearSlow()
+    public void ClearSlow(bool slideOut = true)
     {
         if (!this.showingSlow)
             return;
@@ -164,6 +168,12 @@ public class BuffRowUI : MonoBehaviour
         this.label.text = this.labelWithoutSlow;
         this.showingSlow = false;
         this.backgroundDirty = true;
+
+        if (slideOut && this.isActiveAndEnabled && this.slideRoot != null)
+        {
+            this.StopHide();
+            this.hideCoroutine = StartCoroutine(this.HideAfterDelay(false));
+        }
     }
 
     private void OnEnable()
@@ -231,9 +241,10 @@ public class BuffRowUI : MonoBehaviour
     }
 
 
-    private IEnumerator HideAfterDelay()
+    private IEnumerator HideAfterDelay(bool waitForDisplay = true)
     {
-        yield return new WaitForSecondsRealtime(this.displayDuration);
+        if (waitForDisplay)
+            yield return new WaitForSecondsRealtime(this.displayDuration);
 
         Vector2 startPosition = this.shownPosition;
         Vector2 endPosition =
@@ -334,7 +345,7 @@ public class BuffRowUI : MonoBehaviour
     {
         this.StopHighlight();
         this.StopHide();
-        this.ClearSlow();
+        this.ClearSlow(false);
     }
 
     [ContextMenu("表示確認/Power・1段")]

@@ -69,6 +69,9 @@ public class BuffNotificationUI : MonoBehaviour
             {
                 binding.previousCount = status.GetStacks(binding.kind);
                 binding.previousReductionCount = status.GetReductionCount(binding.kind);
+                float multiplier = status.GetReductionMultiplier(binding.kind);
+                if (multiplier < 1f)
+                    binding.row.ShowSlow(binding.displayName, binding.color, binding.previousCount, multiplier);
             }
 
             return;
@@ -101,7 +104,8 @@ public class BuffNotificationUI : MonoBehaviour
             binding.previousReductionCount = applicationCount;
             float multiplier = status.GetReductionMultiplier(binding.kind);
 
-            if (applied && multiplier < 1f)
+            // 強化取得で同じ行が再表示された場合や、UI再有効化時も弱体表示を復元する。
+            if (multiplier < 1f && (applied || !binding.row.IsShowingSlow))
             {
                 binding.row.ShowSlow(binding.displayName, binding.color,
                     status.GetStacks(binding.kind), multiplier);

@@ -1,7 +1,7 @@
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
-using Unity.Netcode;
+using UnityEngine.EventSystems;
 
 public class ResultUI : MonoBehaviour
 {
@@ -10,21 +10,58 @@ public class ResultUI : MonoBehaviour
     [SerializeField] private TextMeshProUGUI resultRank3Text;
     [SerializeField] private TextMeshProUGUI resultRank4Text;
     [SerializeField] private Button returnToTitleButton;
+    private ConnectionContainer resultContainer;
 
     void Start()
     {
-        ConnectionContainer.Instance.OnResultsReceived += Render;
+        ConnectionContainer.OnInstanceReady += HandleContainerReady;
+        if (returnToTitleButton != null)
+            returnToTitleButton.onClick.AddListener(ReturnToTitle);
+
+        HandleContainerReady(ConnectionContainer.Instance);
+    }
+
+    private void HandleContainerReady(ConnectionContainer container)
+    {
+        if (resultContainer != null)
+            resultContainer.OnResultsReceived -= Render;
+
+        resultContainer = container;
+        if (resultContainer != null)
+            resultContainer.OnResultsReceived += Render;
+
         Render();
 
-        bool isServer = NetworkManager.Singleton != null && NetworkManager.Singleton.IsServer;
+        if (returnToTitleButton == null) return;
+
+        bool isServer = resultContainer != null && resultContainer.IsServer;
         returnToTitleButton.gameObject.SetActive(isServer);
-        returnToTitleButton.onClick.AddListener(() => ConnectionContainer.Instance.ReturnToTitle());
+
+        // 暗転中はReleaseInputが初期選択を復元する。
+        var system = EventSystem.current;
+        if (isServer && system != null)
+        {
+            system.firstSelectedGameObject = returnToTitleButton.gameObject;
+            if (system.enabled && !SceneTransitionUI.InputBlocked)
+                system.SetSelectedGameObject(returnToTitleButton.gameObject);
+        }
+    }
+
+    private void ReturnToTitle()
+    {
+        if (SceneTransitionUI.InputBlocked || resultContainer == null || !resultContainer.IsServer)
+            return;
+
+        resultContainer.ReturnToTitle();
     }
 
     void OnDestroy()
     {
-        if (ConnectionContainer.Instance != null)
-            ConnectionContainer.Instance.OnResultsReceived -= Render;
+        ConnectionContainer.OnInstanceReady -= HandleContainerReady;
+        if (resultContainer != null)
+            resultContainer.OnResultsReceived -= Render;
+        if (returnToTitleButton != null)
+            returnToTitleButton.onClick.RemoveListener(ReturnToTitle);
     }
 
     private void Render()

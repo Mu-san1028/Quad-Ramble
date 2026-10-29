@@ -41,6 +41,8 @@ public class WeaponData : ItemBase
 
     [Header("Throw：弾のPrefabと投擲設定")]
     public GameObject bulletPrefab;
+    [Tooltip("発射位置の高さ補正。実際の弾と軌道プレビューの両方に適用します。")]
+    public float launchHeightOffset = 0f;
     public float throwSpeed = 10f;
     public float blastRadius = 3f;
     public float gravityScale = 9.8f;

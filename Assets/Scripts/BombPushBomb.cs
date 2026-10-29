@@ -53,13 +53,8 @@ public class BombPushBomb : NetworkBehaviour
 
         if (explosionEffectPrefab != null)
         {
-<<<<<<< HEAD
             // 演出用オブジェクトはNetworkObjectにせず、全端末で同じ場所に表示する。
-            ShowExplosionClientRpc(transform.position);
-=======
-            Instantiate(explosionEffectPrefab, transform.position,
-                Quaternion.Euler(this.explosionEffectRotation));
->>>>>>> ea7698088b80d4267ca56c5bb667ddb80353610e
+            ShowExplosionClientRpc(transform.position, this.explosionEffectRotation);
         }
 
         // Spawn済みNetworkObjectをDestroyすると各端末で状態がずれるため、Despawnで通知する。
@@ -70,9 +65,9 @@ public class BombPushBomb : NetworkBehaviour
     }
 
     [Rpc(SendTo.ClientsAndHost)]
-    private void ShowExplosionClientRpc(Vector3 position)
+    private void ShowExplosionClientRpc(Vector3 position, Vector3 rotationEuler)
     {
         if (explosionEffectPrefab != null)
-            Instantiate(explosionEffectPrefab, position, Quaternion.identity);
+            Instantiate(explosionEffectPrefab, position, Quaternion.Euler(rotationEuler));
     }
 }

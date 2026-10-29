@@ -152,9 +152,17 @@ public class PlayerController : NetworkBehaviour
     private Vector3 AimForwardFlat => Quaternion.Euler(0f, aimYaw, 0f) * Vector3.forward;
 
     // 発射点は照準ピボット基準。水平方向へ離すので、下を向いても高さが変わらない
-    private Vector3 ThrowOrigin => aimPivot != null
-        ? aimPivot.position + AimForwardFlat * throwForwardOffset
-        : transform.position + transform.forward * throwForwardOffset;
+    private Vector3 ThrowOrigin
+    {
+        get
+        {
+            Vector3 origin = aimPivot != null
+                ? aimPivot.position + AimForwardFlat * throwForwardOffset
+                : transform.position + transform.forward * throwForwardOffset;
+            var weapon = playerItem != null ? playerItem.CurrentWeapon?.itemData as WeaponData : null;
+            return origin + Vector3.up * (weapon != null ? weapon.launchHeightOffset : 0f);
+        }
+    }
 
     [Header("軌道表示")]
     [SerializeField] private int trajectoryMaxSteps = 60; // サーバーの弾道判定もこの値を使う
@@ -189,7 +197,7 @@ public class PlayerController : NetworkBehaviour
     private TrajectorySimulator.Settings TrajectorySettings => new()
     {
         groundLayers = groundLayers,
-        blockerLayers = shootableLayers,
+        blockerLayers = shootableLayers | bombPushLayers,
         maxSteps = trajectoryMaxSteps,
         ignoreNetworkObjectId = NetworkObjectId,
     };
@@ -1471,83 +1479,11 @@ public class PlayerController : NetworkBehaviour
         float blastRadius = (wd?.blastRadius ?? 3f) * (straight ? 1f : this.RangeMultiplier);
         float gravity = wd?.gravityScale ?? 9.8f;
 
-<<<<<<< HEAD
-        Vector3 landing = TrajectorySimulator.Simulate(startPos, initialVelocity, gravity,
-                                                       TrajectorySettings, out float flightTime, out _);
-
-        // 弾丸や槍の見た目は物理オブジェクトではないため、サーバーで弾道上のBombを別途調べる。
-        // 直撃したBombは爆発を待たず、飛翔中の到達時刻に威力に応じて吹き飛ばす。
-        BombPushBomb directHitBomb = FindBombPushBombAlongTrajectory(
-            startPos, initialVelocity, gravity, flightTime,
-            out float directHitTime, out Vector3 directHitDirection);
-        ulong directHitBombId = directHitBomb != null ? directHitBomb.NetworkObjectId : 0;
-
-        ShowProjectileClientRpc(startPos, initialVelocity, flightTime, gravity, weaponKey, landing);
-
-        Debug.Log($"[Throw] landing: {landing}, flightTime: {flightTime}, power: {power}, blastRadius: {blastRadius}");
-        StartCoroutine(ExplodeAfterDelay(
-            landing, flightTime, blastRadius, power,
-            directHitBombId, directHitTime, directHitDirection));
-    }
-
-    /// <summary>
-    /// 見た目専用の弾丸・槍の代わりに、サーバー上で弾道を小さく区切ってBombへの直撃を調べる。
-    /// </summary>
-    private BombPushBomb FindBombPushBombAlongTrajectory(
-        Vector3 start, Vector3 initialVelocity, float gravity, float flightTime,
-        out float hitTime, out Vector3 hitDirection)
-    {
-        hitTime = 0f;
-        hitDirection = initialVelocity;
-
-        // Bombの半径に対して十分小さい幅で弾道を確認し、細い弾丸でも当たりを拾いやすくする。
-        const float projectileRadius = 0.12f;
-        const float stepDuration = 0.05f;
-
-        Vector3 position = start;
-        Vector3 velocity = initialVelocity;
-        float elapsed = 0f;
-        int steps = Mathf.CeilToInt(flightTime / stepDuration);
-
-        for (int i = 0; i < steps; i++)
-        {
-            float deltaTime = Mathf.Min(stepDuration, flightTime - elapsed);
-            if (deltaTime <= 0f) break;
-
-            // TrajectorySimulatorと同じ計算順にして、判定弾道と表示弾道のずれを抑える。
-            Vector3 nextPosition = position + velocity * deltaTime;
-            Vector3 nextVelocity = velocity + Vector3.down * gravity * deltaTime;
-            Vector3 segment = nextPosition - position;
-
-            if (segment.sqrMagnitude > 0.000001f
-                && Physics.SphereCast(position, projectileRadius, segment.normalized,
-                    out RaycastHit hit, segment.magnitude, this.bombPushLayers,
-                    QueryTriggerInteraction.Ignore))
-            {
-                BombPushBomb bomb = hit.collider.GetComponentInParent<BombPushBomb>();
-                if (bomb != null && bomb.IsSpawned)
-                {
-                    // ヒットした位置の弾速を衝撃方向に使う。
-                    float segmentRatio = hit.distance / segment.magnitude;
-                    hitTime = elapsed + deltaTime * segmentRatio;
-                    hitDirection = velocity + Vector3.down * gravity * hitTime;
-                    return bomb;
-                }
-            }
-
-            position = nextPosition;
-            velocity = nextVelocity;
-            elapsed += deltaTime;
-        }
-
-        return null;
-=======
         int projectileId = this.nextProjectileId++;
         float lifetime = trajectoryMaxSteps * TrajectorySimulator.StepDuration;
         ShowProjectileClientRpc(projectileId, startPos, initialVelocity, lifetime, gravity, weaponKey);
         // 発射時のキーを保持し、武器を切り替えても元の弾の効果を使う。
         StartCoroutine(FlyProjectile(projectileId, startPos, initialVelocity, lifetime, gravity, blastRadius, power, weaponKey));
->>>>>>> ea7698088b80d4267ca56c5bb667ddb80353610e
     }
 
     private void UpdateTrajectoryPreview()
@@ -1638,35 +1574,6 @@ public class PlayerController : NetworkBehaviour
             lifetime, gravity, wd.faceFlightDirection));
     }
 
-<<<<<<< HEAD
-    private IEnumerator ExplodeAfterDelay(
-        Vector3 center, float delay, float radius, float power,
-        ulong directHitBombId, float directHitTime, Vector3 directHitDirection)
-    {
-        // 直撃判定をサーバー側で計算し、見た目上の到達時刻に合わせて力を加える。
-        if (directHitBombId != 0)
-        {
-            yield return new WaitForSeconds(directHitTime);
-            if (!IsSpawned || GameManager.Instance.currentState != GameState.Playing) yield break;
-
-            if (NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(
-                    directHitBombId, out NetworkObject directHitObject)
-                && directHitObject.TryGetComponent<BombPushBomb>(out var directHitBomb))
-            {
-                directHitBomb.ApplyWeaponKnockback(directHitDirection, power);
-            }
-
-            // 同じ爆弾に直撃分と着弾爆発分の力が重複しないよう、残りの飛翔時間だけ待つ。
-            yield return new WaitForSeconds(Mathf.Max(0f, delay - directHitTime));
-        }
-        else
-        {
-            yield return new WaitForSeconds(delay);
-        }
-
-        if (!IsSpawned) yield break;
-        if (GameManager.Instance.currentState != GameState.Playing) yield break;
-=======
     private IEnumerator FlyProjectile(int projectileId, Vector3 start, Vector3 initialVelocity,
         float lifetime, float gravity, float radius, float power, Items weaponKey)
     {
@@ -1704,7 +1611,6 @@ public class PlayerController : NetworkBehaviour
     private void ExplodeProjectile(int projectileId, Vector3 center, float radius, float power, Items weaponKey, bool collided)
     {
         if (!IsServer) return;
->>>>>>> ea7698088b80d4267ca56c5bb667ddb80353610e
 
         // 演出は全員に
         FinishProjectileClientRpc(projectileId, center, radius, true);
@@ -1729,6 +1635,14 @@ public class PlayerController : NetworkBehaviour
                     && hitIds.Add(target.NetworkObjectId)) block.AddDamage(power);
                 continue;
             }
+            var bomb = col.GetComponentInParent<BombPushBomb>();
+            if (bomb != null)
+            {
+                if (target != null && target.NetworkObjectId != NetworkObjectId
+                    && hitIds.Add(target.NetworkObjectId))
+                    bomb.ApplyWeaponKnockback(bomb.transform.position - center, power);
+                continue;
+            }
             if (target != null) targets.Add(target);
         }
 
@@ -1749,21 +1663,7 @@ public class PlayerController : NetworkBehaviour
             var victim = target.GetComponent<PlayerController>();
             if (victim == null) continue;
 
-<<<<<<< HEAD
-            // 投擲武器の爆発範囲にBombが入っていた場合も威力に応じて吹き飛ばす。
-            var bomb = col.GetComponentInParent<BombPushBomb>();
-            if (bomb != null)
-            {
-                // この投擲で直撃済みのBombは、直撃時の力だけを適用する。
-                if (target.NetworkObjectId == directHitBombId) continue;
-                bomb.ApplyWeaponKnockback(col.transform.position - center, power);
-                continue;
-            }
-
-            if (col.GetComponentInParent<PlayerController>() == null) continue;
-=======
             hitPlayer = true;
->>>>>>> ea7698088b80d4267ca56c5bb667ddb80353610e
 
             if (reductionEffect != null)
                 reductionEffect.Apply(target.GetComponent<PlayerStatus>());

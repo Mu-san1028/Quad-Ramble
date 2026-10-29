@@ -21,8 +21,11 @@ public class PlayerController : NetworkBehaviour
     [SerializeField] private float deceleration = 10f; // ブレーキ力
     [SerializeField] private float aimMoveSpeedMultiplier = 0.4f;
 
-    private float CurrentMoveSpeed  => (moveSpeed + (status != null ? status.SpeedBonus : 0f)) * (isAiming ? aimMoveSpeedMultiplier : 1f);
-    private float CurrentJumpHeight => jumpHeight + (status != null ? status.JumpBonus  : 0f);
+    private float CurrentMoveSpeed => (moveSpeed + (status != null ? status.SpeedBonus : 0f))
+        * (status != null ? status.SlowSpeedMultiplier : 1f)
+        * (isAiming ? aimMoveSpeedMultiplier : 1f);
+    private float CurrentJumpHeight => (jumpHeight + (status != null ? status.JumpBonus : 0f))
+        * (status != null ? status.JumpReductionMultiplier : 1f);
     private float CurrentTurnSmoothTime => Mathf.Max(0.02f, turnSmoothTime);
 
     private CharacterController controller;
@@ -33,6 +36,47 @@ public class PlayerController : NetworkBehaviour
 
     // 接地の真値。所有者しか Move() を呼ばないので、他人のコピーでは isGrounded が更新されない
     private readonly NetworkVariable<bool> networkGrounded = new(writePerm: NetworkVariableWritePermission.Owner);
+    private readonly NetworkVariable<bool> networkRising = new(writePerm: NetworkVariableWritePermission.Owner);
+    private readonly NetworkVariable<Vector2> networkViewAngles = new(writePerm: NetworkVariableWritePermission.Owner);
+    private readonly NetworkVariable<bool> networkAiming = new(writePerm: NetworkVariableWritePermission.Owner);
+
+    // 所有者のカメラ補正を含む実際の照準を一括同期する。
+    private struct AimLineState : INetworkSerializable, System.IEquatable<AimLineState>
+    {
+        public bool visible;
+        public int weaponKey;
+        public Vector3 start;
+        public Vector3 end;
+
+        public void NetworkSerialize<T>(BufferSerializer<T> serializer) where T : IReaderWriter
+        {
+            serializer.SerializeValue(ref visible);
+            serializer.SerializeValue(ref weaponKey);
+            serializer.SerializeValue(ref start);
+            serializer.SerializeValue(ref end);
+        }
+
+        public bool Equals(AimLineState other) => visible == other.visible && weaponKey == other.weaponKey
+            && start.Equals(other.start) && end.Equals(other.end);
+    }
+
+    private readonly NetworkVariable<AimLineState> networkAimLine = new(writePerm: NetworkVariableWritePermission.Owner);
+
+    private PlayerController spectatorTarget;
+    private Transform spectatorAnchor;
+    private bool spectating;
+    private bool spectatorAiming;
+    private float spectatorPitch;
+    private bool spectatorTargetChanged;
+    private SpectatorUI spectatorHud;
+    [SerializeField] private SpectatorUI spectatorUIPrefab;
+
+    public PlayerController SpectatorTarget => this.spectatorTarget;
+
+    /// <summary>坂道の座標変化ではなく、ジャンプ・衝撃による上昇をアニメーションへ伝える。</summary>
+    public bool IsRising => (IsSpawned && !IsOwner)
+        ? this.networkRising.Value
+        : (this.IsControllable && this.velocity.y + this.impact.y > 0.1f);
 
     /// <summary>アニメーション用の接地判定。自分とオフラインは実測、他人は同期された値</summary>
     public bool IsGrounded => (IsSpawned && !IsOwner)
@@ -56,18 +100,24 @@ public class PlayerController : NetworkBehaviour
     private PlayerItem playerItem;
     private PlayerStatus status;
 
-    private bool isEliminated = false;
+    private readonly NetworkVariable<bool> eliminated = new(false);
+    public bool IsEliminated => this.eliminated.Value;
+    private bool isEliminated => this.IsEliminated;
+    private readonly Dictionary<Renderer, bool> eliminatedRenderers = new();
+    private readonly Dictionary<Collider, bool> eliminatedColliders = new();
     private bool controlsStopped;
     private Quaternion teleportRotation;
     private bool pendingStartFacing;
 
     public bool IsTitleMode { get; private set; }
+    public int LastPlacementRound { get; private set; } = -1;
 
     public bool IsControllable =>
         (this.IsOwner || this.allowOfflineControl)
         && !this.isEliminated
         && !this.IsTitleMode
         && !this.controlsStopped
+        && !SceneTransitionUI.InputBlocked
         && (RoundManager.Instance == null || !RoundManager.Instance.IsRoundOver);
 
     private readonly RaycastHit[] aimHits = new RaycastHit[8];
@@ -77,6 +127,11 @@ public class PlayerController : NetworkBehaviour
     private float RangeMultiplier => this.status != null ? this.status.RangeMultiplier : 1f;
 
     private Coroutine windupRoutine;   // 溜め中のコルーチン。ラウンドをまたいで残さない
+    private bool fireHeld;
+    private InputAction fireReleaseAction;
+    public bool IsCharging => windupRoutine != null;
+    public float ChargeProgress { get; private set; }
+    private int nextProjectileId;
 
 
     [Header("射撃・Raycast設定")]
@@ -97,9 +152,17 @@ public class PlayerController : NetworkBehaviour
     private Vector3 AimForwardFlat => Quaternion.Euler(0f, aimYaw, 0f) * Vector3.forward;
 
     // 発射点は照準ピボット基準。水平方向へ離すので、下を向いても高さが変わらない
-    private Vector3 ThrowOrigin => aimPivot != null
-        ? aimPivot.position + AimForwardFlat * throwForwardOffset
-        : transform.position + transform.forward * throwForwardOffset;
+    private Vector3 ThrowOrigin
+    {
+        get
+        {
+            Vector3 origin = aimPivot != null
+                ? aimPivot.position + AimForwardFlat * throwForwardOffset
+                : transform.position + transform.forward * throwForwardOffset;
+            var weapon = playerItem != null ? playerItem.CurrentWeapon?.itemData as WeaponData : null;
+            return origin + Vector3.up * (weapon != null ? weapon.launchHeightOffset : 0f);
+        }
+    }
 
     [Header("軌道表示")]
     [SerializeField] private int trajectoryMaxSteps = 60; // サーバーの弾道判定もこの値を使う
@@ -141,6 +204,7 @@ public class PlayerController : NetworkBehaviour
 
     private void Awake()
     {
+        this.controller = GetComponent<CharacterController>();
         // PlayerInputのOnEnableより先に止め、所有者とシーンが確定してから有効化する。
         if (!this.allowOfflineControl)
             GetComponent<PlayerInput>().enabled = false;
@@ -149,17 +213,21 @@ public class PlayerController : NetworkBehaviour
 
     public override void OnNetworkSpawn()
     {
+        this.eliminated.OnValueChanged += this.HandleEliminatedChanged;
+        this.ApplyEliminatedState(this.IsEliminated);
         // TitlePlayerPresentation.Updateを待たず、生成時点で入力の担当を確定する。
         this.IsTitleMode = FindAnyObjectByType<TitleInputController>() != null;
 
         PlayerManager.Instance.AddPlayer(this);
         PlayerInput input = GetComponent<PlayerInput>();
 
-        input.enabled = this.IsOwner && !this.IsTitleMode;
-
-        if (input.enabled)
+        if (this.IsOwner && !this.IsTitleMode)
         {
             this.PairInputDevice(input);
+        }
+        else
+        {
+            input.enabled = false;
         }
 
         // 照準の表示は自分の画面にだけ出す
@@ -180,11 +248,13 @@ public class PlayerController : NetworkBehaviour
             this.IsOwner
             || (!this.IsSpawned && this.allowOfflineControl);
 
-        input.enabled = !enabled && canUseInput;
-
-        if (input.enabled)
+        if (!enabled && canUseInput)
         {
             this.PairInputDevice(input);
+        }
+        else
+        {
+            input.enabled = false;
         }
 
         // 入力停止前の操作や、移動の勢いを持ち越さない。
@@ -199,11 +269,7 @@ public class PlayerController : NetworkBehaviour
         this.aimYaw = transform.eulerAngles.y;
         this.aimPitch = 0f;
 
-        if (this.windupRoutine != null)
-        {
-            StopCoroutine(this.windupRoutine);
-            this.windupRoutine = null;
-        }
+        this.CancelCharge();
 
         if (this.preview != null)
         {
@@ -213,6 +279,11 @@ public class PlayerController : NetworkBehaviour
 
     public override void OnNetworkDespawn()
     {
+        CancelCharge();
+        this.preview?.Hide();
+        this.ClearSpectating(false);
+        this.eliminated.OnValueChanged -= this.HandleEliminatedChanged;
+        this.effects.ClearProjectiles();
         PlayerManager.Instance?.RemovePlayer(this);
     }
 
@@ -222,6 +293,16 @@ public class PlayerController : NetworkBehaviour
     }
     void OnDisable()
     {
+        if (fireReleaseAction != null)
+        {
+            fireReleaseAction.canceled -= HandleFireReleased;
+            fireReleaseAction = null;
+        }
+        CancelCharge();
+        fireHeld = false;
+        this.preview?.Hide();
+        if (IsSpawned && IsOwner) networkAimLine.Value = default;
+        this.ClearSpectating(false);
         SceneManager.sceneLoaded -= RefreshMainCamera;
     }
 
@@ -239,6 +320,7 @@ public class PlayerController : NetworkBehaviour
             this.SetTitleMode(false);
 
         if (!IsOwner) return;
+        this.ClearSpectating(false);
         isAiming = false;
         cameraRig.Rebind(aimPivot != null ? aimPivot : transform);
     }
@@ -248,42 +330,115 @@ public class PlayerController : NetworkBehaviour
     {
         var pad = LocalGamepad.Current;
         input.neverAutoSwitchControlSchemes = true;
+        string scheme;
+        var devices = new List<InputDevice>();
 
         if (LocalGamepad.Seat == 0 && Keyboard.current != null && Keyboard.current.added)
         {
-            var devices = new List<InputDevice> { Keyboard.current };
+            scheme = "Keyboard&Mouse";
+            devices.Add(Keyboard.current);
             if (Mouse.current != null && Mouse.current.added) devices.Add(Mouse.current);
             if (pad != null && pad.added) devices.Add(pad);
-            input.SwitchCurrentControlScheme("Keyboard&Mouse", devices.ToArray());
         }
         else if (pad != null && pad.added)
         {
-            input.SwitchCurrentControlScheme("Gamepad", pad);
+            scheme = "Gamepad";
+            devices.Add(pad);
         }
         else
         {
             input.enabled = false;
             Debug.LogWarning($"[Input] seat={LocalGamepad.Seat} の入力デバイスが見つかりません", this);
+            return;
         }
+
+        // 前回の有効化に失敗していた場合は、デバイス解放後に初期化し直す。
+        if (input.enabled && !input.user.valid)
+            input.enabled = false;
+
+        input.defaultControlScheme = scheme;
+        input.enabled = true;
+
+        if (!input.user.valid)
+        {
+            input.enabled = false;
+            Debug.LogWarning($"[Input] seat={LocalGamepad.Seat} の入力ユーザーを作成できません。Title側や他のPlayerInputのデバイス割り当てを確認してください。", this);
+            return;
+        }
+
+        input.SwitchCurrentControlScheme(scheme, devices.ToArray());
     }
 
     #region ネットワーク経由での脱落・復活・移動制御
     /// <summary>脱落をクライアントに反映させる</summary>
     public void Eliminate()
     {
-        if (!IsServer) return;
-        EliminateClientRpc();
+        if (!IsServer || this.IsEliminated) return;
+        this.eliminated.Value = true;
     }
 
-    [Rpc(SendTo.ClientsAndHost)]
-    private void EliminateClientRpc()
+    // サーバーだけが保持する。復帰・次ラウンドの配置で破棄する。
+    private PlayerController lastKnockoutAttacker;
+
+    public void ConfirmFallKnockout()
     {
-        isEliminated = true;
-        isAiming = false;
-        Debug.Log($"【{gameObject.name}】が脱落しました！");
-        controller.enabled = false;
-        // キャラクターを非表示にする
-        gameObject.GetComponentInChildren<Renderer>().enabled = false;
+        if (!IsServer || this.IsEliminated) return;
+        var attacker = this.lastKnockoutAttacker;
+        this.lastKnockoutAttacker = null;
+        if (attacker == null || attacker == this || !attacker.IsSpawned) return;
+        attacker.ShowKnockoutOwnerRpc(ConnectionContainer.Instance != null
+            ? ConnectionContainer.Instance.CurrentRound : 0);
+    }
+
+    [Rpc(SendTo.Owner)]
+    private void ShowKnockoutOwnerRpc(int round)
+    {
+        if (!IsOwner || (ConnectionContainer.Instance != null
+            && ConnectionContainer.Instance.CurrentRound != round)) return;
+        GetComponent<PlayerKOFeedback>()?.Play();
+    }
+
+    private void HandleEliminatedChanged(bool previous, bool current)
+    {
+        this.ApplyEliminatedState(current);
+    }
+
+    private void ApplyEliminatedState(bool hidden)
+    {
+        if (hidden)
+        {
+            this.isAiming = false;
+            this.moveInput = this.lookInput = Vector2.zero;
+            this.velocity = this.impact = Vector3.zero;
+            this.CancelCharge();
+            if (this.preview != null) this.preview.Hide();
+
+            foreach (var renderer in GetComponentsInChildren<Renderer>(true))
+            {
+                if (!this.eliminatedRenderers.ContainsKey(renderer))
+                    this.eliminatedRenderers.Add(renderer, renderer.enabled);
+                renderer.enabled = false;
+            }
+            foreach (var collider in GetComponentsInChildren<Collider>(true))
+            {
+                if (!this.eliminatedColliders.ContainsKey(collider))
+                    this.eliminatedColliders.Add(collider, collider.enabled);
+                collider.enabled = false;
+            }
+        }
+        else
+        {
+            foreach (var entry in this.eliminatedRenderers)
+                if (entry.Key != null) entry.Key.enabled = entry.Value;
+            foreach (var entry in this.eliminatedColliders)
+                if (entry.Key != null) entry.Key.enabled = entry.Value;
+            this.eliminatedRenderers.Clear();
+            this.eliminatedColliders.Clear();
+        }
+
+        GetComponentInChildren<PlayerAppearance>(true)?.SetEliminated(hidden);
+        if (this.controller != null)
+            this.controller.enabled = !hidden && !this.controlsStopped && !this.IsTitleMode;
     }
 
     /// <summary>移動の可否をクライアントに反映させる</summary>
@@ -318,11 +473,7 @@ public class PlayerController : NetworkBehaviour
             impact = Vector3.zero;
             isAiming = false;
 
-            if (windupRoutine != null)
-            {
-                StopCoroutine(windupRoutine);
-                windupRoutine = null;
-            }
+            this.CancelCharge();
 
             if (preview != null) preview.Hide();
         }
@@ -332,28 +483,23 @@ public class PlayerController : NetworkBehaviour
     public void Revive()
     {
         if (!IsServer) return;
-        ReviveClientRpc();
-    }
-
-    [Rpc(SendTo.ClientsAndHost)]
-    private void ReviveClientRpc()
-    {
-        isEliminated = false;
-        controller.enabled = true;
-        // キャラクターを表示する
-        gameObject.GetComponentInChildren<Renderer>().enabled = true;
+        this.lastKnockoutAttacker = null;
+        this.eliminated.Value = false;
     }
 
     /// <summary>テレポートをクライアントに反映させる</summary>
     public void Teleport(Vector3 position, Quaternion rotation)
     {
         if (!IsServer) return;
-        TeleportClientRpc(position, rotation);
+        this.lastKnockoutAttacker = null;
+        TeleportClientRpc(position, rotation, ConnectionContainer.Instance != null
+            ? ConnectionContainer.Instance.CurrentRound : 0);
     }
 
     [Rpc(SendTo.ClientsAndHost)]
-    private void TeleportClientRpc(Vector3 position, Quaternion rotation)
+    private void TeleportClientRpc(Vector3 position, Quaternion rotation, int placementRound)
     {
+        GetComponent<PlayerAnimator>()?.ResetAirborneState();
         // モデルだけのTitle回転はNetworkTransformでは同期されないため全端末で戻す。
         GetComponentInChildren<PlayerAppearance>(true)?.ResetTitleModelRotation();
         if (!IsOwner) return;
@@ -369,11 +515,14 @@ public class PlayerController : NetworkBehaviour
         controller.enabled = false;
         transform.SetPositionAndRotation(position, rotation);
         GetComponent<NetworkTransform>().Teleport(position, rotation, transform.localScale);
-        controller.enabled = true;
+        Debug.Log($"[RoundSpawn] Applied: ClientId={OwnerClientId}, Position={transform.position}", this);
+        controller.enabled = !this.IsEliminated && !this.controlsStopped && !this.IsTitleMode;
 
         // 照準もスポーン地点の向きに合わせる。
         // これが無いと、体が次のフレームで前ラウンドの aimYaw に向き直ってしまう
         this.ResetFacing(rotation);
+
+        this.LastPlacementRound = placementRound;
 
         // 速度もリセット
         velocity = Vector3.zero;
@@ -381,11 +530,7 @@ public class PlayerController : NetworkBehaviour
 
         // 溜めをラウンドをまたいで持ち越さない。
         // クールダウンはスロット側にあり、ClearAllWeapons で一緒に消える
-        if (this.windupRoutine != null)
-        {
-            StopCoroutine(this.windupRoutine);
-            this.windupRoutine = null;
-        }
+        this.CancelCharge();
     }
 
     private void ResetFacing(Quaternion rotation)
@@ -469,61 +614,90 @@ public class PlayerController : NetworkBehaviour
 
     void OnNextWeapon(InputValue value)
     {
+        if (value.isPressed && this.TrySwitchSpectator(1)) return;
+
         if (!this.IsControllable)
             return;
 
         if (value.isPressed)
         {
+            this.CancelCharge();
             this.playerItem.SwitchWeapon(1);
         }
     }
 
     void OnPreviousWeapon(InputValue value)
     {
+        if (value.isPressed && this.TrySwitchSpectator(-1)) return;
+
         if (!this.IsControllable)
             return;
 
         if (value.isPressed)
         {
+            this.CancelCharge();
             this.playerItem.SwitchWeapon(-1);
         }
     }
 
     void OnFire(InputValue value)
     {
-        if (!this.IsControllable) return;
-        if (!value.isPressed) return;
-        if (this.windupRoutine != null) return;      // 溜め中は他の武器も撃てない
-
-        // 溜めている間に持ち替えられても入れ替わらないよう、押した瞬間の武器を捕まえる
-        ItemSlot slot = this.playerItem.CurrentWeapon;
-        if (slot == null || !slot.IsReady) return;   // このスロットのクールダウン中
-
-        var weaponData = slot.itemData as WeaponData;
-        if (weaponData == null) return;
-
-        if (!this.playerItem.TryConsumeAmmo())
+        // SendMessagesではButton型のcanceledが届かないため、解除だけ直接購読する。
+        // 実際に入力された時点の、PlayerInputが所有するActionインスタンスを使う。
+        InputAction action = GetComponent<PlayerInput>().actions.FindAction("Fire", false);
+        if (fireReleaseAction != action)
         {
-            Debug.Log("弾、または武器がありません！");
+            if (fireReleaseAction != null) fireReleaseAction.canceled -= HandleFireReleased;
+            fireReleaseAction = action;
+            if (fireReleaseAction != null) fireReleaseAction.canceled += HandleFireReleased;
+        }
+
+        if (!value.isPressed)
+        {
+            fireHeld = false;
+            CancelCharge();
             return;
         }
 
-        this.BeginMeleeEffect(weaponData);
+        if (fireHeld) return;
+        fireHeld = true;
+        if (!IsControllable || windupRoutine != null || playerItem == null) return;
 
-        // 1周期 = 溜め + クールダウン。スロットごとに持つので他の武器を巻き込まない
-        if(slot.currentAmount > 0) slot.nextFireTime = Time.time + weaponData.attackWindup + weaponData.reloadTime;
+        ItemSlot slot = playerItem.CurrentWeapon;
+        if (slot == null || !slot.IsReady || slot.currentAmount <= 0
+            || slot.itemData is not WeaponData weapon) return;
 
-        // 溜めが無い武器はコルーチンを挟まない。挟むと、本体が同期実行を終えた後に
-        // StartCoroutine の戻り値が windupRoutine を上書きし、二度と撃てなくなる
-        if (weaponData.attackWindup > 0f)
+        if (weapon.attackWindup > 0f)
         {
-            this.windupRoutine = StartCoroutine(this.FireAfterWindup(weaponData));
+            windupRoutine = StartCoroutine(FireAfterWindup(slot, weapon));
+            PlayChargeStartSE(weapon);
         }
         else
-        {
-            this.FireWeapon(weaponData);
-            this.playerItem.DiscardIfEmpty();
-        }
+            CompleteAttack(slot, weapon);
+    }
+
+    private void HandleFireReleased(InputAction.CallbackContext context)
+    {
+        fireHeld = false;
+        CancelCharge();
+    }
+
+    private void CancelCharge()
+    {
+        if (windupRoutine != null) StopCoroutine(windupRoutine);
+        windupRoutine = null;
+        ChargeProgress = 0f;
+    }
+
+    private void CompleteAttack(ItemSlot slot, WeaponData weapon)
+    {
+        if (!IsControllable || playerItem.CurrentWeapon != slot || !slot.IsReady
+            || !playerItem.TryConsumeAmmo()) return;
+
+        slot.nextFireTime = Time.time + Mathf.Max(0f, weapon.reloadTime);
+        BeginMeleeEffect(weapon);
+        FireWeapon(weapon);
+        playerItem.DiscardIfEmpty();
     }
     #endregion
 
@@ -580,11 +754,15 @@ public class PlayerController : NetworkBehaviour
     void Update()
     {
         if (this.IsTitleMode)
+        {
+            this.preview?.Hide();
+            if (IsSpawned && IsOwner && networkAimLine.Value.visible) networkAimLine.Value = default;
             return;
+        }
 
         this.UpdateAimInput();
-        cameraRig.UpdateAim(isAiming, aimPitch);
-        this.UpdateTrajectoryPreview();
+        if (IsOwner && !this.IsEliminated)
+            cameraRig.UpdateAim(isAiming, aimPitch);
 
         if (controller != null && controller.enabled && this.IsControllable)
         {
@@ -593,12 +771,23 @@ public class PlayerController : NetworkBehaviour
 
         // 体の回転より後に適用する。親の回転を継承させないため
         this.ApplyAimPivot();
+        this.UpdateTrajectoryPreview();
+
+        if (IsSpawned && IsOwner)
+        {
+            this.networkViewAngles.Value = new Vector2(this.aimYaw, this.aimPitch);
+            this.networkAiming.Value = this.isAiming;
+        }
+
+        // 操作停止中も更新し、上昇状態が他端末に残らないようにする。
+        if (IsSpawned && IsOwner && this.networkRising.Value != this.IsRising)
+            this.networkRising.Value = this.IsRising;
     }
 
     /// <summary>右スティックの入力を照準のヨー・ピッチに積分する</summary>
     private void UpdateAimInput()
     {
-        if (!IsOwner) return;
+        if (!this.IsControllable) return;
 
         float dt = Time.deltaTime;
 
@@ -615,6 +804,162 @@ public class PlayerController : NetworkBehaviour
 
         // aimPitch は「正が上向き」。UnityのX回転は正が下向きなので符号を反転する
         aimPivot.rotation = Quaternion.Euler(-aimPitch, aimYaw, 0f);
+    }
+
+
+    /// <summary>操作とは独立して、脱落した本人のカメラだけを生存者へ向ける。</summary>
+    private void LateUpdate()
+    {
+        if (!IsSpawned || !IsOwner) return;
+
+        var round = RoundManager.Instance;
+        if (!this.IsEliminated || this.IsTitleMode || round == null || !round.IsSpawned || !round.IsReady)
+        {
+            this.ClearSpectating(true);
+            return;
+        }
+
+        if (!this.spectating)
+        {
+            this.spectatorAnchor = new GameObject("Spectator Camera Target").transform;
+            this.spectatorAnchor.gameObject.hideFlags = HideFlags.DontSave;
+            this.spectatorAnchor.SetPositionAndRotation(
+                this.aimPivot != null ? this.aimPivot.position : transform.position,
+                Quaternion.Euler(-this.aimPitch, this.aimYaw, 0f));
+            this.spectatorPitch = this.aimPitch;
+            this.spectatorAiming = false;
+            this.spectating = true;
+            this.cameraRig.Rebind(this.spectatorAnchor);
+        }
+
+        // 結果表示中は追従を止め、最後に見ていた場所を保持する。
+        if (round.IsRoundOver)
+        {
+            if (this.spectatorHud != null) this.spectatorHud.Hide();
+            return;
+        }
+
+        bool switched = this.spectatorTargetChanged;
+        this.spectatorTargetChanged = false;
+        if (!this.CanSpectate(this.spectatorTarget))
+        {
+            this.spectatorTarget = this.ChooseSpectatorTarget();
+            switched = this.spectatorTarget != null;
+        }
+
+        this.UpdateSpectatorHud();
+        if (this.spectatorTarget == null) return;
+
+        var target = this.spectatorTarget;
+        Vector2 angles = target.networkViewAngles.Value;
+        Quaternion rotation = Quaternion.Euler(-angles.y, angles.x, 0f);
+        this.spectatorAnchor.position = target.aimPivot != null
+            ? target.aimPivot.position : target.transform.position;
+        this.spectatorAnchor.rotation = switched ? rotation : Quaternion.Slerp(
+            this.spectatorAnchor.rotation, rotation, 1f - Mathf.Exp(-15f * Time.deltaTime));
+        this.spectatorPitch = angles.y;
+        this.spectatorAiming = target.networkAiming.Value;
+
+        if (switched)
+        {
+            // アンカー自体は再利用するため、対象変更時には明示的にカメラの履歴を切る。
+            this.cameraRig.SetFollowTarget(null);
+            this.cameraRig.SetFollowTarget(this.spectatorAnchor);
+        }
+
+        this.cameraRig.UpdateAim(this.spectatorAiming, this.spectatorPitch);
+    }
+
+
+    private bool CanSpectate(PlayerController candidate)
+    {
+        return candidate != null && candidate != this && candidate.IsSpawned
+            && candidate.isActiveAndEnabled && !candidate.IsEliminated && !candidate.IsTitleMode;
+    }
+
+    private bool TrySwitchSpectator(int direction)
+    {
+        if (SceneTransitionUI.InputBlocked) return true;
+        if (!IsSpawned || !IsOwner || !this.IsEliminated) return false;
+
+        var round = RoundManager.Instance;
+        if (!this.spectating || this.IsTitleMode || round == null || !round.IsSpawned
+            || !round.IsReady || round.IsRoundOver) return true;
+
+        var manager = PlayerManager.Instance;
+        if (manager == null) return true;
+
+        var candidates = new List<PlayerController>();
+        foreach (var candidate in manager.AllPlayers)
+        {
+            if (this.CanSpectate(candidate)) candidates.Add(candidate);
+        }
+
+        if (candidates.Count == 0) return true;
+
+        // 接続順で固定し、LとRが互いに逆順になるようにする。
+        candidates.Sort((a, b) => a.OwnerClientId.CompareTo(b.OwnerClientId));
+        int index = candidates.IndexOf(this.spectatorTarget);
+        int next = index < 0 ? (direction > 0 ? 0 : candidates.Count - 1)
+            : (index + direction + candidates.Count) % candidates.Count;
+        this.spectatorTargetChanged |= this.spectatorTarget != candidates[next];
+        this.spectatorTarget = candidates[next];
+        return true;
+    }
+
+    private void UpdateSpectatorHud()
+    {
+        if (this.spectatorTarget == null)
+        {
+            if (this.spectatorHud != null) this.spectatorHud.Hide();
+            return;
+        }
+
+        if (this.spectatorHud == null)
+        {
+            if (this.spectatorUIPrefab == null) return;
+            this.spectatorHud = Instantiate(this.spectatorUIPrefab);
+        }
+
+        var name = ConnectionContainer.Instance != null
+            ? ConnectionContainer.Instance.GetName(this.spectatorTarget.OwnerClientId) : null;
+        if (string.IsNullOrWhiteSpace(name)) name = $"Player {this.spectatorTarget.OwnerClientId + 1}";
+        this.spectatorHud.Show(name);
+    }
+
+
+    private PlayerController ChooseSpectatorTarget()
+    {
+        var manager = PlayerManager.Instance;
+        if (manager == null) return null;
+
+        // Playersの脱落順リストはサーバーで更新されるため、同期済みのIsEliminatedで選ぶ。
+        PlayerController selected = null;
+        int count = 0;
+        foreach (var candidate in manager.AllPlayers)
+        {
+            if (!this.CanSpectate(candidate)) continue;
+            count++;
+            if (Random.Range(0, count) == 0) selected = candidate;
+        }
+        return selected;
+    }
+
+
+    private void ClearSpectating(bool restoreCamera)
+    {
+        if (!this.spectating) return;
+
+        if (restoreCamera && IsOwner)
+            this.cameraRig.Rebind(this.aimPivot != null ? this.aimPivot : transform);
+
+        this.spectating = false;
+        this.spectatorTarget = null;
+        this.spectatorTargetChanged = false;
+        if (this.spectatorHud != null) Destroy(this.spectatorHud.gameObject);
+        this.spectatorHud = null;
+        if (this.spectatorAnchor != null) Destroy(this.spectatorAnchor.gameObject);
+        this.spectatorAnchor = null;
     }
 
     private void UpdateMovement()
@@ -685,9 +1030,10 @@ public class PlayerController : NetworkBehaviour
         if (impact.sqrMagnitude <= 0.04f) impact = Vector3.zero;
         bool isRace = SceneManager.GetSceneByName("Race").isLoaded;
         if (isRace) ResolveRacePenetration();
-        bool followRaceGround = isRace
+        bool useGroundFollow = isRace || SceneManager.GetSceneByName("Territory").isLoaded;
+        bool followGround = useGroundFollow
             && controller.isGrounded && velocity.y <= 0f && impact.y <= 0f;
-        traversingRaceStep = followRaceGround;
+        traversingRaceStep = isRace && followGround;
         // ブーストや低FPS時にも、カプセルの半径以内の距離で衝突を検出する。
         float distance = (velocity + impact).magnitude * Time.deltaTime;
         float maxStep = Mathf.Max(0.05f, controller.radius
@@ -696,7 +1042,7 @@ public class PlayerController : NetworkBehaviour
         CollisionFlags collisions = CollisionFlags.None;
         for (int i = 0; i < steps; i++)
             collisions |= controller.Move((velocity + impact) * (Time.deltaTime / steps));
-        if (followRaceGround && !controller.isGrounded)
+        if (followGround && !controller.isGrounded)
         {
             collisions |= FollowRaceStepDown();
         }
@@ -828,24 +1174,31 @@ public class PlayerController : NetworkBehaviour
             impact -= hit.normal * impactIntoSurface;
     }
 
-    /// <summary>溜めを待ってから撃つ。attackWindup が 0 より大きい武器だけが通る</summary>
-    private IEnumerator FireAfterWindup(WeaponData weaponData)
+    /// <summary>押し続けた時間だけ溜め、完了時に初めて弾数を消費する。</summary>
+    private IEnumerator FireAfterWindup(ItemSlot slot, WeaponData weapon)
     {
-        this.effects.PlayWindup(gameObject.name, weaponData.attackWindup);
-        yield return new WaitForSeconds(weaponData.attackWindup);
+        float elapsed = 0f;
+        float duration = weapon.attackWindup;
+        ChargeProgress = 0f;
+        while (elapsed < duration)
+        {
+            // 最初に必ずyieldし、StartCoroutineの戻り値による完了状態の上書きを防ぐ。
+            yield return null;
+            if (!fireHeld || !IsControllable || playerItem.CurrentWeapon != slot
+                || slot.itemData != weapon || slot.currentAmount <= 0)
+            {
+                windupRoutine = null;
+                ChargeProgress = 0f;
+                yield break;
+            }
 
-        // 中断して抜ける場合も必ず先に解除する。残すと二度と撃てなくなる
-        this.windupRoutine = null;
+            elapsed += Time.deltaTime;
+            ChargeProgress = Mathf.Clamp01(elapsed / duration);
+        }
 
-        // 溜めている間に脱落・シーン遷移が起きたら撃たない。
-        // GameManager.currentState はサーバーでしか更新されないのでここでは使えない
-        if (!this.IsControllable) yield break;
-        if (RoundManager.Instance == null) yield break;
-
-        this.FireWeapon(weaponData);
-        this.playerItem.DiscardIfEmpty();
+        windupRoutine = null;
+        CompleteAttack(slot, weapon);
     }
-
     private void FireWeapon(WeaponData weaponData)
     {
         effects.PlayShoot(gameObject.name);
@@ -870,6 +1223,73 @@ public class PlayerController : NetworkBehaviour
             this.RequestMeleeEffectServerRpc(ItemDatabase.Instance.GetKey(weapon));
     }
 
+    private void PlayChargeStartSE(WeaponData weapon)
+    {
+        if (weapon.chargeStartSE == null) return;
+
+        SEAudio.Instance?.Play(weapon.chargeStartSE, weapon.chargeStartSEVolume);
+        if (IsSpawned && ItemDatabase.Instance != null)
+            RequestChargeStartSEServerRpc(ItemDatabase.Instance.GetKey(weapon),
+                ConnectionContainer.Instance != null ? ConnectionContainer.Instance.CurrentRound : 0);
+    }
+
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Owner)]
+    private void RequestChargeStartSEServerRpc(Items weaponKey, int roundNumber)
+    {
+        var round = RoundManager.Instance;
+        if (IsEliminated || IsTitleMode || round == null || !round.IsSpawned || round.IsIntro
+            || round.IsRoundOver || round.CountdownRemaining > RoundManager.StartDisplayDuration
+            || (ConnectionContainer.Instance != null && ConnectionContainer.Instance.CurrentRound != roundNumber))
+            return;
+
+        if (ItemDatabase.Instance.GetItem(weaponKey) is WeaponData weapon
+            && weapon.attackWindup > 0f && weapon.chargeStartSE != null)
+            PlayChargeStartSEClientRpc(weaponKey, roundNumber);
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void PlayChargeStartSEClientRpc(Items weaponKey, int roundNumber)
+    {
+        // 本人は入力時に再生済み。ホストでも二重に鳴らさない。
+        if (IsOwner || (ConnectionContainer.Instance != null
+            && ConnectionContainer.Instance.CurrentRound != roundNumber)) return;
+
+        if (ItemDatabase.Instance.GetItem(weaponKey) is WeaponData weapon)
+            SEAudio.Instance?.Play(weapon.chargeStartSE, weapon.chargeStartSEVolume);
+    }
+
+    private void PlayWeaponUseSE(WeaponData weapon, Items weaponKey)
+    {
+        // 本人は即時再生し、RPCでは本人を除いて通知する。
+        SEAudio.Instance?.Play(weapon.useSE, weapon.useSEVolume);
+
+        if (this.IsSpawned && weapon.useSE != null)
+            this.RequestWeaponUseSEServerRpc(weaponKey);
+    }
+
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Owner)]
+    private void RequestWeaponUseSEServerRpc(Items weaponKey)
+    {
+        var round = RoundManager.Instance;
+        if (round == null || !round.IsSpawned || round.IsIntro || round.IsRoundOver
+            || round.CountdownRemaining > RoundManager.StartDisplayDuration)
+            return;
+
+        this.PlayWeaponSEClientRpc(weaponKey, false);
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void PlayWeaponSEClientRpc(Items weaponKey, bool hit)
+    {
+        if (!hit && this.IsOwner) return;
+
+        if (ItemDatabase.Instance.GetItem(weaponKey) is not WeaponData weapon)
+            return;
+
+        SEAudio.Instance?.Play(hit ? weapon.hitSE : weapon.useSE,
+            hit ? weapon.hitSEVolume : weapon.useSEVolume);
+    }
+
     private void PlayMeleeEffect(WeaponData weapon)
     {
         if (weapon.meleeEffectPrefab == null || this.IsTitleMode
@@ -879,7 +1299,7 @@ public class PlayerController : NetworkBehaviour
         SwordSwingEffect effect = Instantiate(weapon.meleeEffectPrefab, transform);
         effect.transform.localPosition = weapon.meleeEffectOffset;
         effect.transform.localRotation = Quaternion.Euler(weapon.meleeEffectRotation);
-        effect.Play(this, weapon.attackWindup);
+        effect.Play(this, 0f);
     }
 
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Owner)]
@@ -916,6 +1336,7 @@ public class PlayerController : NetworkBehaviour
         }
 
         Items weaponKey = ItemDatabase.Instance.GetKey(weaponData);
+        this.PlayWeaponUseSE(weaponData, weaponKey);
         var hits = weaponData.attackRange.GetHitTargets(transform.position, transform.rotation,
                                                         this.attackableLayers,
                                                         this.RangeMultiplier);
@@ -947,6 +1368,7 @@ public class PlayerController : NetworkBehaviour
         }
 
         Items weaponKey = ItemDatabase.Instance.GetKey(weaponData);
+        this.PlayWeaponUseSE(weaponData, weaponKey);
         Vector3 startPos = ThrowOrigin;
         Vector3 throwDir = GetThrowDirection(weaponData.launchAngle);
         // まっすぐ飛ぶ武器は弾速がそのまま射程になるので、範囲強化をここに乗せる
@@ -963,8 +1385,10 @@ public class PlayerController : NetworkBehaviour
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Owner)]
     void SubmitShootServerRpc(Vector3 hitPoint, ulong targetId, Vector3 direction, Items weaponKey)
     {
-        PlayShootEffectClientRpc(hitPoint);
-        if (targetId == 0) return;
+        if (targetId == NetworkObjectId
+            || !NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(targetId, out var target)
+            || target.GetComponent<PlayerController>() == null)
+            return;
 
         var wd = ItemDatabase.Instance.GetItem(weaponKey) as WeaponData;
         float power = (wd != null ? wd.Power : 10f) * this.PowerMultiplier;
@@ -978,6 +1402,9 @@ public class PlayerController : NetworkBehaviour
         }
 
         this.ApplyKnockback(targetId, direction, power);
+
+        if (wd != null && wd.hitSE != null)
+            this.PlayWeaponSEClientRpc(weaponKey, true);
     }
 
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Owner)]
@@ -990,15 +1417,26 @@ public class PlayerController : NetworkBehaviour
     }
 
     /// <summary>サーバーが最終的なノックバックを決めて対象に適用させる</summary>
-    private void ApplyKnockback(ulong targetId, Vector3 direction, float power)
+    private void ApplyKnockback(ulong targetId, Vector3 direction, float power, bool critical = false)
     {
         if (!IsServer) return;
         if (!NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(targetId, out var netObj)) return;
 
         var targetStatus = netObj.GetComponent<PlayerStatus>();
 
+        var victim = netObj.GetComponent<PlayerController>();
+        if (victim == null || victim == this || victim.IsEliminated) return;
+        victim.lastKnockoutAttacker = this;
+
         // 先に疲労を蓄積し、その値を含めた倍率で吹き飛ばす
-        targetStatus?.AddFatigue(power);
+        float previousFatigue = targetStatus != null ? targetStatus.Fatigue : 0f;
+        float damageMultiplier = critical && ItemDatabase.Instance != null
+            ? ItemDatabase.Instance.CriticalDamageMultiplier : 1f;
+        targetStatus?.AddFatigue(power * damageMultiplier);
+        float damage = targetStatus != null ? targetStatus.Fatigue - previousFatigue : 0f;
+        if (damage > 0f)
+            ShowDamageOwnerRpc(damage, victim.transform.position,
+                ConnectionContainer.Instance != null ? ConnectionContainer.Instance.CurrentRound : 0, critical);
         float multiplier = targetStatus != null ? targetStatus.KnockbackMultiplier : 1f;
 
         Vector3 force = direction.normalized * power * multiplier;
@@ -1007,6 +1445,15 @@ public class PlayerController : NetworkBehaviour
         Debug.Log($"[Knockback] power={power}, fatigue={targetStatus?.Fatigue}, multiplier={multiplier:F2}");
 
         ApplyKnockbackClientRpc(targetId, force);
+    }
+
+    [Rpc(SendTo.Owner)]
+    private void ShowDamageOwnerRpc(float damage, Vector3 position, int round, bool critical)
+    {
+        if (!IsOwner || (ConnectionContainer.Instance != null
+            && ConnectionContainer.Instance.CurrentRound != round)) return;
+
+        GetComponent<PlayerDamageFeedback>()?.Show(damage, position, round, critical);
     }
 
     [Rpc(SendTo.ClientsAndHost)]
@@ -1022,14 +1469,6 @@ public class PlayerController : NetworkBehaviour
         }
     }
 
-    [Rpc(SendTo.ClientsAndHost)]
-    void PlayShootEffectClientRpc(Vector3 hitPoint)
-    {
-        if (IsOwner) return;
-        // 自分以外のプレイヤーの画面で、他人のキャラが銃を撃つ音や光を再生する
-        effects.PlayShoot(gameObject.name);
-    }
-
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Owner)]
     void ThrowProjectileServerRpc(Vector3 startPos, Vector3 initialVelocity, Items weaponKey)
     {
@@ -1040,86 +1479,71 @@ public class PlayerController : NetworkBehaviour
         float blastRadius = (wd?.blastRadius ?? 3f) * (straight ? 1f : this.RangeMultiplier);
         float gravity = wd?.gravityScale ?? 9.8f;
 
-        Vector3 landing = TrajectorySimulator.Simulate(startPos, initialVelocity, gravity,
-                                                       TrajectorySettings, out float flightTime, out _);
-
-        // 弾丸や槍の見た目は物理オブジェクトではないため、サーバーで弾道上のBombを別途調べる。
-        // 直撃したBombは爆発を待たず、飛翔中の到達時刻に威力に応じて吹き飛ばす。
-        BombPushBomb directHitBomb = FindBombPushBombAlongTrajectory(
-            startPos, initialVelocity, gravity, flightTime,
-            out float directHitTime, out Vector3 directHitDirection);
-        ulong directHitBombId = directHitBomb != null ? directHitBomb.NetworkObjectId : 0;
-
-        ShowProjectileClientRpc(startPos, initialVelocity, flightTime, gravity, weaponKey, landing);
-
-        Debug.Log($"[Throw] landing: {landing}, flightTime: {flightTime}, power: {power}, blastRadius: {blastRadius}");
-        StartCoroutine(ExplodeAfterDelay(
-            landing, flightTime, blastRadius, power,
-            directHitBombId, directHitTime, directHitDirection));
-    }
-
-    /// <summary>
-    /// 見た目専用の弾丸・槍の代わりに、サーバー上で弾道を小さく区切ってBombへの直撃を調べる。
-    /// </summary>
-    private BombPushBomb FindBombPushBombAlongTrajectory(
-        Vector3 start, Vector3 initialVelocity, float gravity, float flightTime,
-        out float hitTime, out Vector3 hitDirection)
-    {
-        hitTime = 0f;
-        hitDirection = initialVelocity;
-
-        // Bombの半径に対して十分小さい幅で弾道を確認し、細い弾丸でも当たりを拾いやすくする。
-        const float projectileRadius = 0.12f;
-        const float stepDuration = 0.05f;
-
-        Vector3 position = start;
-        Vector3 velocity = initialVelocity;
-        float elapsed = 0f;
-        int steps = Mathf.CeilToInt(flightTime / stepDuration);
-
-        for (int i = 0; i < steps; i++)
-        {
-            float deltaTime = Mathf.Min(stepDuration, flightTime - elapsed);
-            if (deltaTime <= 0f) break;
-
-            // TrajectorySimulatorと同じ計算順にして、判定弾道と表示弾道のずれを抑える。
-            Vector3 nextPosition = position + velocity * deltaTime;
-            Vector3 nextVelocity = velocity + Vector3.down * gravity * deltaTime;
-            Vector3 segment = nextPosition - position;
-
-            if (segment.sqrMagnitude > 0.000001f
-                && Physics.SphereCast(position, projectileRadius, segment.normalized,
-                    out RaycastHit hit, segment.magnitude, this.bombPushLayers,
-                    QueryTriggerInteraction.Ignore))
-            {
-                BombPushBomb bomb = hit.collider.GetComponentInParent<BombPushBomb>();
-                if (bomb != null && bomb.IsSpawned)
-                {
-                    // ヒットした位置の弾速を衝撃方向に使う。
-                    float segmentRatio = hit.distance / segment.magnitude;
-                    hitTime = elapsed + deltaTime * segmentRatio;
-                    hitDirection = velocity + Vector3.down * gravity * hitTime;
-                    return bomb;
-                }
-            }
-
-            position = nextPosition;
-            velocity = nextVelocity;
-            elapsed += deltaTime;
-        }
-
-        return null;
+        int projectileId = this.nextProjectileId++;
+        float lifetime = trajectoryMaxSteps * TrajectorySimulator.StepDuration;
+        ShowProjectileClientRpc(projectileId, startPos, initialVelocity, lifetime, gravity, weaponKey);
+        // 発射時のキーを保持し、武器を切り替えても元の弾の効果を使う。
+        StartCoroutine(FlyProjectile(projectileId, startPos, initialVelocity, lifetime, gravity, blastRadius, power, weaponKey));
     }
 
     private void UpdateTrajectoryPreview()
     {
-        if (!IsOwner) return;
+        if (!IsOwner)
+        {
+            var state = networkAimLine.Value;
+            if (!IsSpawned || !state.visible || IsEliminated || controlsStopped || IsTitleMode
+                || SceneTransitionUI.InputBlocked || (RoundManager.Instance != null && RoundManager.Instance.IsRoundOver)
+                || ItemDatabase.Instance == null)
+            {
+                preview.Hide();
+                return;
+            }
+
+            if (ItemDatabase.Instance.GetItem((Items)state.weaponKey) is WeaponData remoteWeapon
+                && remoteWeapon.showAimLine && remoteWeapon.weaponType == WeaponType.Throw && remoteWeapon.FliesStraight)
+                preview.DrawAimLine(state.start, state.end, remoteWeapon.aimLineColor, remoteWeapon.aimLineWidth, false);
+            else
+                preview.Hide();
+            return;
+        }
 
         var weaponData = this.playerItem != null
             ? this.playerItem.CurrentWeapon?.itemData as WeaponData
             : null;
 
-        if (!isAiming || !IsControllable || weaponData == null || weaponData.weaponType != WeaponType.Throw)
+        bool showLine = isAiming && IsControllable && weaponData != null
+            && weaponData.weaponType == WeaponType.Throw && weaponData.FliesStraight && weaponData.showAimLine;
+        if (showLine)
+        {
+            Vector3 start = ThrowOrigin;
+            float distance = Mathf.Min(Mathf.Max(0f, weaponData.aimLineMaxDistance),
+                Mathf.Max(0f, weaponData.throwSpeed * RangeMultiplier * trajectoryMaxSteps * TrajectorySimulator.StepDuration));
+            Vector3 end = start + GetThrowDirection(weaponData.launchAngle) * distance;
+            if (TrajectorySimulator.TryGetHit(start, end, TrajectorySettings, out var lineHit)) end = lineHit.point;
+            preview.DrawAimLine(start, end, weaponData.aimLineColor, weaponData.aimLineWidth, true);
+            if (IsSpawned && ItemDatabase.Instance != null)
+                networkAimLine.Value = new AimLineState
+                {
+                    visible = true, weaponKey = (int)ItemDatabase.Instance.GetKey(weaponData), start = start, end = end
+                };
+            return;
+        }
+
+        if (IsSpawned && networkAimLine.Value.visible) networkAimLine.Value = default;
+
+        if (!isAiming || !IsControllable || weaponData == null)
+        {
+            preview.Hide();
+            return;
+        }
+
+        if (weaponData.weaponType == WeaponType.Melee)
+        {
+            preview.DrawMelee(weaponData.attackRange, transform.position, transform.rotation, this.RangeMultiplier);
+            return;
+        }
+
+        if (weaponData.weaponType != WeaponType.Throw)
         {
             preview.Hide();
             return;
@@ -1141,81 +1565,127 @@ public class PlayerController : NetworkBehaviour
     }
 
     [Rpc(SendTo.ClientsAndHost)]
-    void ShowProjectileClientRpc(Vector3 startPos, Vector3 initialVelocity, float flightTime, float gravity, Items weaponKey, Vector3 landing)
+    void ShowProjectileClientRpc(int projectileId, Vector3 startPos, Vector3 initialVelocity, float lifetime, float gravity, Items weaponKey)
     {
         var wd = ItemDatabase.Instance.GetItem(weaponKey) as WeaponData;
         if (wd?.bulletPrefab == null) return;
         StartCoroutine(effects.Projectile(
-            wd.bulletPrefab, startPos, initialVelocity,
-            flightTime, gravity, landing, wd.faceFlightDirection));
+            projectileId, wd.bulletPrefab, startPos, initialVelocity,
+            lifetime, gravity, wd.faceFlightDirection));
     }
 
-    private IEnumerator ExplodeAfterDelay(
-        Vector3 center, float delay, float radius, float power,
-        ulong directHitBombId, float directHitTime, Vector3 directHitDirection)
+    private IEnumerator FlyProjectile(int projectileId, Vector3 start, Vector3 initialVelocity,
+        float lifetime, float gravity, float radius, float power, Items weaponKey)
     {
-        // 直撃判定をサーバー側で計算し、見た目上の到達時刻に合わせて力を加える。
-        if (directHitBombId != 0)
+        Vector3 center = start;
+        float elapsed = 0f;
+        var settings = TrajectorySettings;
+        while (elapsed < lifetime)
         {
-            yield return new WaitForSeconds(directHitTime);
-            if (!IsSpawned || GameManager.Instance.currentState != GameState.Playing) yield break;
-
-            if (NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(
-                    directHitBombId, out NetworkObject directHitObject)
-                && directHitObject.TryGetComponent<BombPushBomb>(out var directHitBomb))
+            yield return null;
+            if (!IsSpawned) yield break;
+            if (GameManager.Instance.currentState != GameState.Playing)
             {
-                directHitBomb.ApplyWeaponKnockback(directHitDirection, power);
+                FinishProjectileClientRpc(projectileId, center, radius, false);
+                yield break;
             }
 
-            // 同じ爆弾に直撃分と着弾爆発分の力が重複しないよう、残りの飛翔時間だけ待つ。
-            yield return new WaitForSeconds(Mathf.Max(0f, delay - directHitTime));
+            // 移動中の相手にも当たるよう、発射時の予測位置ではなく毎フレーム判定する。
+            float frameEnd = Mathf.Min(elapsed + Time.deltaTime, lifetime);
+            while (elapsed < frameEnd)
+            {
+                float nextTime = Mathf.Min(elapsed + TrajectorySimulator.StepDuration, frameEnd);
+                Vector3 next = TrajectorySimulator.PositionAtTime(start, initialVelocity, gravity, nextTime);
+                if (TrajectorySimulator.TryGetHit(center, next, settings, out var hit))
+                {
+                    this.ExplodeProjectile(projectileId, hit.point, radius, power, weaponKey, collided: true);
+                    yield break;
+                }
+                center = next;
+                elapsed = nextTime;
+            }
         }
-        else
-        {
-            yield return new WaitForSeconds(delay);
-        }
+        this.ExplodeProjectile(projectileId, center, radius, power, weaponKey, collided: false);
+    }
 
-        if (!IsSpawned) yield break;
-        if (GameManager.Instance.currentState != GameState.Playing) yield break;
+    private void ExplodeProjectile(int projectileId, Vector3 center, float radius, float power, Items weaponKey, bool collided)
+    {
+        if (!IsServer) return;
 
         // 演出は全員に
-        ExplosionEffectClientRpc(center, radius);
+        FinishProjectileClientRpc(projectileId, center, radius, true);
+
+        var weapon = ItemDatabase.Instance.GetItem(weaponKey) as WeaponData;
+        var reductionEffect = weapon != null && weapon.bulletPrefab != null
+            ? weapon.bulletPrefab.GetComponent<StatReductionOnHit>() : null;
+        bool hitPlayer = false;
 
         // 判定はサーバーだけが行う
         var hits = Physics.OverlapSphere(center, radius, this.attackableLayers);
         var hitIds = new HashSet<ulong>();
+        var targets = new List<NetworkObject>();
 
         foreach (var col in hits)
         {
             var target = col.GetComponentInParent<NetworkObject>();
+            var block = col.GetComponentInParent<BreakableBlock>();
+            if (block != null)
+            {
+                if (target != null && target.NetworkObjectId != NetworkObjectId
+                    && hitIds.Add(target.NetworkObjectId)) block.AddDamage(power);
+                continue;
+            }
+            var bomb = col.GetComponentInParent<BombPushBomb>();
+            if (bomb != null)
+            {
+                if (target != null && target.NetworkObjectId != NetworkObjectId
+                    && hitIds.Add(target.NetworkObjectId))
+                    bomb.ApplyWeaponKnockback(bomb.transform.position - center, power);
+                continue;
+            }
+            if (target != null) targets.Add(target);
+        }
+
+        // 顔だけに命中した場合も対象に含める。身体との重複は下のID集合で除外する。
+        foreach (var region in CriticalHitRegion.Active)
+        {
+            if (region.Overlaps(center, radius)
+                && (shootableLayers.value & (1 << region.Owner.gameObject.layer)) != 0)
+                targets.Add(region.Owner.NetworkObject);
+        }
+
+        foreach (var target in targets)
+        {
             if (target == null) continue;
             if (target.NetworkObjectId == NetworkObjectId) continue;   // 自分は無視
             if (!hitIds.Add(target.NetworkObjectId)) continue;
 
-            var block = col.GetComponentInParent<BreakableBlock>();
-            if (block != null) { block.AddDamage(power); continue; }   // ここはサーバー実行なので直接呼べる
+            var victim = target.GetComponent<PlayerController>();
+            if (victim == null) continue;
 
-            // 投擲武器の爆発範囲にBombが入っていた場合も威力に応じて吹き飛ばす。
-            var bomb = col.GetComponentInParent<BombPushBomb>();
-            if (bomb != null)
-            {
-                // この投擲で直撃済みのBombは、直撃時の力だけを適用する。
-                if (target.NetworkObjectId == directHitBombId) continue;
-                bomb.ApplyWeaponKnockback(col.transform.position - center, power);
-                continue;
-            }
+            hitPlayer = true;
 
-            if (col.GetComponentInParent<PlayerController>() == null) continue;
+            if (reductionEffect != null)
+                reductionEffect.Apply(target.GetComponent<PlayerStatus>());
 
-            Vector3 direction = (col.transform.position - center).normalized;
-            this.ApplyKnockback(target.NetworkObjectId, direction, power);
+            Vector3 direction = (target.transform.position - center).normalized;
+            this.ApplyKnockback(target.NetworkObjectId, direction, power, CriticalHitRegion.IsCritical(victim, center));
+        }
+
+        // 時間切れでは無音。衝突時は敵への命中、または非命中SE設定に従う。
+        // 敵が複数いても、爆発1回につきSEは1回だけ通知する。
+        if (collided && weapon != null && weapon.hitSE != null
+            && (weapon.playExplosionSEOnMiss || hitPlayer))
+        {
+            this.PlayWeaponSEClientRpc(weaponKey, true);
         }
     }
 
     [Rpc(SendTo.ClientsAndHost)]
-    void ExplosionEffectClientRpc(Vector3 center, float radius)
+    void FinishProjectileClientRpc(int projectileId, Vector3 center, float radius, bool explode)
     {
-        effects.PlayExplosion(center, radius);
+        effects.FinishProjectile(projectileId, center, explode);
+        if (explode) effects.PlayExplosion(center, radius);
     }
 
     public void TakeKnockback(Vector3 force)

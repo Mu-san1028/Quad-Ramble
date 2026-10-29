@@ -26,6 +26,7 @@ public class NetworkConnect : MonoBehaviour
     [Header("既存のボタン")]
     public Button createServerButton;
     public Button joinServerButton;
+    public Button leaveRoomButton;
 
     [Header("接続設定")]
     [SerializeField, Min(1f)] private float connectionTimeout = 15f;
@@ -85,6 +86,9 @@ public class NetworkConnect : MonoBehaviour
         if (this.joinServerButton != null)
             this.joinServerButton.onClick.AddListener(this.JoinHost);
 
+        if (this.leaveRoomButton != null)
+            this.leaveRoomButton.onClick.AddListener(this.LeaveRoom);
+
         this.transport = this.manager.NetworkConfig.NetworkTransport as UnityTransport;
 
         this.RefreshButtons();
@@ -134,6 +138,7 @@ public class NetworkConnect : MonoBehaviour
                 if (!this.manager.IsListening
                     && !this.manager.ShutdownInProgress)
                 {
+                    GameManager.Instance?.ResetForNewGame();
                     this.SetState(ConnectionState.Idle);
                 }
 
@@ -346,6 +351,17 @@ public class NetworkConnect : MonoBehaviour
     }
 
 
+    public void LeaveRoom()
+    {
+        if (this.State != ConnectionState.Connected) return;
+
+        SEAudio.Instance?.Play(SEType.Cancel);
+        if (UnityEngine.EventSystems.EventSystem.current != null)
+            UnityEngine.EventSystems.EventSystem.current.SetSelectedGameObject(null);
+        if (this.joinCodeInput != null) this.joinCodeInput.SetTextWithoutNotify("");
+        this.Fail("");
+    }
+
     private void Fail(string message)
     {
         ++this.attemptVersion;
@@ -383,6 +399,13 @@ public class NetworkConnect : MonoBehaviour
 
         if (this.joinServerButton != null)
             this.joinServerButton.interactable = interactable;
+
+        if (this.leaveRoomButton != null)
+        {
+            bool connected = this.State == ConnectionState.Connected;
+            this.leaveRoomButton.interactable = connected;
+            this.leaveRoomButton.gameObject.SetActive(connected);
+        }
 
         this.RefreshRelayUI();
     }
@@ -423,5 +446,8 @@ public class NetworkConnect : MonoBehaviour
 
         if (this.joinServerButton != null)
             this.joinServerButton.onClick.RemoveListener(this.JoinHost);
+
+        if (this.leaveRoomButton != null)
+            this.leaveRoomButton.onClick.RemoveListener(this.LeaveRoom);
     }
 }

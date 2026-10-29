@@ -26,6 +26,7 @@ public class GameManager : MonoBehaviour
 
     private readonly List<string> selectedStages = new();
     private bool stagesPrepared;
+    private bool returningToTitle;
 
     // 開始済みラウンド数
     public int CurrentRound { get; private set; } = 0;
@@ -117,6 +118,10 @@ public class GameManager : MonoBehaviour
         if (NetworkManager.Singleton == null) return; 
         if (!NetworkManager.Singleton.IsServer) return;
 
+        var roster = ConnectionContainer.Instance;
+        if (roster == null || !roster.IsSpawned || roster.IsTransitioning || this.returningToTitle)
+            return;
+
         var sceneManager = NetworkManager.Singleton.SceneManager;
         if (sceneManager == null)
             return;
@@ -133,8 +138,14 @@ public class GameManager : MonoBehaviour
             CurrentRound++;
             ConnectionContainer.Instance?.SetCurrentRound(CurrentRound);
 
-            var status = sceneManager.LoadScene(nextScene, LoadSceneMode.Single);
-            if (status == SceneEventProgressStatus.Started) return;
+            if (!Application.CanStreamedLevelBeLoaded(nextScene))
+            {
+                Debug.LogWarning($"[Transition] 未登録のステージをスキップ: {nextScene}", this);
+                continue;
+            }
+
+            roster.BeginSceneTransition(nextScene, CurrentRound, false);
+            return;
         }
 
         if (ConnectionContainer.Instance != null)
@@ -142,7 +153,7 @@ public class GameManager : MonoBehaviour
             ConnectionContainer.Instance.BroadcastFinalScores();
         }
         // 全ラウンド終了後、結果画面に遷移
-        sceneManager.LoadScene(resultSceneName, LoadSceneMode.Single);
+        roster.BeginSceneTransition(resultSceneName, CurrentRound, true);
     }
 
     public int GetPointsForRank(int rank)
@@ -166,11 +177,17 @@ public class GameManager : MonoBehaviour
 
     public void ReturnToTitle()
     {
+        if (this.returningToTitle) return;
+        this.returningToTitle = true;
         StartCoroutine(this.ReturnToTitleRoutine());
     }
 
     private IEnumerator ReturnToTitleRoutine()
     {
+        var transition = SceneTransitionUI.EnsureInstance();
+        transition.Close(0, false, true);
+        while (!transition.IsFullyCovered) yield return null;
+
         if (NetworkManager.Singleton != null)
         {
             NetworkManager.Singleton.Shutdown();
@@ -178,7 +195,13 @@ public class GameManager : MonoBehaviour
         }
 
         this.ResetForNewGame();
-        SceneManager.LoadScene(titleSceneName, LoadSceneMode.Single);
+        var loading = SceneManager.LoadSceneAsync(titleSceneName, LoadSceneMode.Single);
+        while (loading != null && !loading.isDone) yield return null;
+        while (!transition.MinimumHoldComplete) yield return null;
+        transition.Open();
+        while (!transition.IsVisuallyOpen) yield return null;
+        transition.ReleaseInput();
+        this.returningToTitle = false;
     }
 }
 

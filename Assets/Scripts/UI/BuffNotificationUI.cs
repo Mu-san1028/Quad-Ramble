@@ -1,7 +1,7 @@
 using UnityEngine;
 
 /// <summary>
-/// 自分の恒久強化の段数が増えたとき、種類に対応する通知行を表示する。
+/// 自分の恒久強化の取得と、減速攻撃の被弾を通知行へ表示する。
 /// 常に有効なCanvasなど、通知行の外側に配置する。
 /// </summary>
 public class BuffNotificationUI : MonoBehaviour
@@ -15,6 +15,7 @@ public class BuffNotificationUI : MonoBehaviour
         public BuffRowUI row;
 
         [System.NonSerialized] public int previousCount;
+        [System.NonSerialized] public uint previousReductionCount;
     }
 
     [Header("強化の種類と通知行")]
@@ -65,7 +66,10 @@ public class BuffNotificationUI : MonoBehaviour
 
             // 初回・プレイヤー交代時の所持数は、取得通知として扱わない。
             foreach (RowBinding binding in this.rows)
+            {
                 binding.previousCount = status.GetStacks(binding.kind);
+                binding.previousReductionCount = status.GetReductionCount(binding.kind);
+            }
 
             return;
         }
@@ -87,6 +91,24 @@ public class BuffNotificationUI : MonoBehaviour
             {
                 // ラウンドリセットなどで段数が減ったら、古い通知を消す。
                 binding.row.gameObject.SetActive(false);
+            }
+        }
+
+        foreach (RowBinding binding in this.rows)
+        {
+            uint applicationCount = status.GetReductionCount(binding.kind);
+            bool applied = applicationCount != binding.previousReductionCount;
+            binding.previousReductionCount = applicationCount;
+            float multiplier = status.GetReductionMultiplier(binding.kind);
+
+            if (applied && multiplier < 1f)
+            {
+                binding.row.ShowSlow(binding.displayName, binding.color,
+                    status.GetStacks(binding.kind), multiplier);
+            }
+            else if (multiplier >= 1f)
+            {
+                binding.row.ClearSlow();
             }
         }
     }

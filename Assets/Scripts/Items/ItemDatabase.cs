@@ -13,7 +13,7 @@ public enum Items
     Bomb,
     GoldenBomb,
     Gun,
-    Thorn,
+    shuriken,
     Spear,
     Sword,
     Landmine,
@@ -24,6 +24,21 @@ public enum Items
     TurnUp,      // 廃止。値がずれると各シーンの抽選テーブルが壊れるので消さない
     PowerUp,
     RangeUp,
+
+    // Append weapons
+    RedPotion,
+    BluePotion,
+    YellowPotion,
+
+    // 既存のシーン・アイテムの番号を保持して末尾へ追加する。
+    JumpDownPotion,
+    PowerDownPotion,
+    shurikenGold,
+    Dagger,
+    Axe,
+    GoldenSpear,
+    Rifle,
+    GoldRifle
 }
 
 public class ItemDatabase : MonoBehaviour
@@ -36,6 +51,10 @@ public class ItemDatabase : MonoBehaviour
     }
 
     [SerializeField] private ItemEntry[] items;
+
+    [Header("全武器共通のクリティカル設定")]
+    [SerializeField, Min(1f)] private float criticalDamageMultiplier = 1.5f;
+    public float CriticalDamageMultiplier => Mathf.Max(1f, criticalDamageMultiplier);
 
     public static ItemDatabase Instance { get; private set; }
 

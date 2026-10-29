@@ -24,6 +24,12 @@ public class PlayerAnimator : MonoBehaviour
     [SerializeField] private float smoothing = 12f;
     [SerializeField] private float teleportThreshold = 1f;   // 1フレームでこれ以上動いたら瞬間移動とみなす
 
+    [Header("空中モーション")]
+    [SerializeField, Min(0f)] private float airborneDelay = 0.1f;
+
+    private float airborneTime;
+    private bool airborneAnimation;
+
     private Animator animator;
     private CharacterController controller;
     private PlayerController player;
@@ -40,6 +46,7 @@ public class PlayerAnimator : MonoBehaviour
 
     private void OnEnable()
     {
+        this.ResetAirborneState();
         // 再有効化やテレポート直後に巨大な差分が出ないよう basis を取り直す
         this.previousPosition = transform.position;
     }
@@ -48,6 +55,7 @@ public class PlayerAnimator : MonoBehaviour
     public void SetAnimator(Animator animator)
     {
         this.animator = animator;
+        this.ResetAirborneState();
         this.previousPosition = transform.position;
         this.direction = Vector2.zero;
         this.state = 0f;
@@ -74,6 +82,11 @@ public class PlayerAnimator : MonoBehaviour
         Vector3 delta = transform.position - this.previousPosition;
         this.previousPosition = transform.position;
 
+        // 上下だけのテレポートも、空中判定の持ち越しを防ぐ。
+        bool teleported = delta.magnitude >= this.teleportThreshold;
+        if (teleported)
+            this.ResetAirborneState();
+
         // 上下はジャンプ側が扱う。混ぜると前後アニメが暴れる
         delta.y = 0f;
 
@@ -81,7 +94,7 @@ public class PlayerAnimator : MonoBehaviour
         float targetState = 0f;
 
         // ラウンド開始時のテレポートで一瞬だけ全力疾走にならないよう弾く
-        if (delta.magnitude < this.teleportThreshold)
+        if (!teleported)
         {
             Vector3 velocity = delta / dt;
             float speed = velocity.magnitude;
@@ -108,12 +121,45 @@ public class PlayerAnimator : MonoBehaviour
             ? this.player.IsGrounded
             : (this.controller != null && this.controller.isGrounded);
 
-        this.animator.SetBool(IsJumpId, !grounded);
+        this.UpdateJumpAnimation(grounded, this.player != null && this.player.IsRising, dt);
+    }
+
+    private void UpdateJumpAnimation(bool grounded, bool rising, float dt)
+    {
+        if (rising)
+        {
+            this.airborneTime = 0f;
+            this.airborneAnimation = true;
+        }
+        else if (grounded)
+        {
+            this.airborneTime = 0f;
+            this.airborneAnimation = false;
+        }
+        else
+        {
+            this.airborneTime += dt;
+            // 一度空中になったら着地まで維持し、ジャンプ頂点で地上へ戻さない。
+            if (this.airborneTime >= this.airborneDelay)
+                this.airborneAnimation = true;
+        }
+
+        this.animator.SetBool(IsJumpId, this.airborneAnimation);
+    }
+
+    public void ResetAirborneState()
+    {
+        this.airborneTime = 0f;
+        this.airborneAnimation = false;
+
+        if (this.animator != null)
+            this.animator.SetBool(IsJumpId, false);
     }
 
     /// <summary>Title中は移動量や接地判定によらず、地上の待機モーションにする。</summary>
     private void ApplyTitleIdle()
     {
+        this.ResetAirborneState();
         // 台への配置を移動とみなさず、通常操作へ戻るときも古い位置を持ち越さない。
         this.previousPosition = transform.position;
         this.direction = Vector2.zero;

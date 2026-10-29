@@ -13,10 +13,11 @@ public class Connection
     public int CharacterIndex { get; set; } = -1;
     public bool IsReady { get; set; }
 
-    public Connection(ulong id, ulong clientId)
+    public Connection(ulong id, ulong clientId, int score = 0)
     {
         this.Id = id;
         this.ClientId = clientId;
+        this.Score = score;
     }
 
     public void AddScore(int delta)
@@ -25,7 +26,7 @@ public class Connection
     }
 }
 
-public class ConnectionContainer : NetworkBehaviour
+public partial class ConnectionContainer : NetworkBehaviour
 {
     public static ConnectionContainer Instance { get; private set; }
     private readonly List<Connection> connections = new();
@@ -61,6 +62,7 @@ public class ConnectionContainer : NetworkBehaviour
 
             NetworkManager.Singleton.OnClientDisconnectCallback
                 += this.HandleClientDisconnect;
+            NetworkManager.Singleton.OnClientConnectedCallback += this.HandleTransitionJoin;
         }
 
         Instance = this;
@@ -68,9 +70,11 @@ public class ConnectionContainer : NetworkBehaviour
     }
     public override void OnNetworkDespawn()
     {
+        this.CleanupTransition();
         if (NetworkManager.Singleton != null)
         {
             NetworkManager.Singleton.OnClientDisconnectCallback -= this.HandleClientDisconnect;
+            NetworkManager.Singleton.OnClientConnectedCallback -= this.HandleTransitionJoin;
         }
 
         if (Instance == this) Instance = null;
@@ -79,6 +83,7 @@ public class ConnectionContainer : NetworkBehaviour
     private void HandleClientDisconnect(ulong clientId)
     {
         if (!IsServer) return;
+        this.transitionBarrier.Remove(clientId);
         if (this.connections.RemoveAll(c => c.ClientId == clientId) == 0) return;
         this.BroadcastRoster();
     }
@@ -97,8 +102,12 @@ private void AppendServerRpc(ulong clientId, RpcParams rpcParams = default)
         if (this.GetConnection(senderId) != null)
             return;
 
+        // 途中離脱しても、既存プレイヤーの番号は詰め直さない。
+        ulong playerId = 0;
+        while (this.connections.Any(c => c.Id == playerId)) playerId++;
+
         this.connections.Add(
-            new Connection((ulong)this.connections.Count, senderId)
+            new Connection(playerId, senderId)
             {
                 Name = "Player"
             }
@@ -115,7 +124,7 @@ private void AppendServerRpc(ulong clientId, RpcParams rpcParams = default)
             this.connections.Clear();
             foreach (var e in roster)
             {
-                this.connections.Add(new Connection((ulong)this.connections.Count, e.ClientId)
+                this.connections.Add(new Connection(e.PlayerId, e.ClientId, e.Score)
                 {
                     Name = e.Name.ToString(),
                     CharacterIndex = e.CharacterIndex,
@@ -133,6 +142,8 @@ private void AppendServerRpc(ulong clientId, RpcParams rpcParams = default)
             .Select(c => new RosterEntry
             {
                 ClientId = c.ClientId,
+                PlayerId = c.Id,
+                Score = c.Score,
                 Name = c.Name,
                 CharacterIndex = c.CharacterIndex,
                 IsReady = c.IsReady
@@ -153,6 +164,11 @@ private void AppendServerRpc(ulong clientId, RpcParams rpcParams = default)
         return this.connections.Find(c => c.ClientId == id);
     }
 
+    public Connection GetConnectionByPlayerId(ulong playerId)
+    {
+        return this.connections.Find(c => c.Id == playerId);
+    }
+
     /// <summary>表示用の名前。見つからなければ null</summary>
     public string GetName(ulong clientId) => this.GetConnection(clientId)?.Name;
 
@@ -167,6 +183,7 @@ private void AppendServerRpc(ulong clientId, RpcParams rpcParams = default)
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     public void SelectCharacterRpc(int index, RpcParams rpcParams = default)
     {
+        if (this.IsTransitioning) return;
         ulong senderId = rpcParams.Receive.SenderClientId;
 
         Connection me = this.GetConnection(senderId);
@@ -187,6 +204,7 @@ private void AppendServerRpc(ulong clientId, RpcParams rpcParams = default)
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     public void SetReadyRpc(bool ready, RpcParams rpcParams = default)
     {
+        if (this.IsTransitioning) return;
         Connection me = this.GetConnection(rpcParams.Receive.SenderClientId);
         if (me == null) return;
         if (ready && me.CharacterIndex < 0) return;   // 選ぶ前に決定はできない
@@ -207,8 +225,16 @@ private void AppendServerRpc(ulong clientId, RpcParams rpcParams = default)
 
     public int GetRank(ulong id)
     {
-        List<(Connection, int)> sorted = this.connections.OrderBy(c => c.Score).Select((c, i) => (c, i)).ToList();
-        return sorted.Find(pair => pair.Item1.Id == id).Item2 + 1;
+        Connection player = this.connections.Find(c => c.Id == id);
+        return player == null ? 0 : 1 + this.connections.Count(c => c.Score > player.Score);
+    }
+
+    /// <summary>ラウンドの全得点加算後に、累計成績をまとめて同期する。</summary>
+    public void BroadcastScores()
+    {
+        if (!IsServer || !IsSpawned) return;
+
+        this.BroadcastRoster();
     }
 
     public void BroadcastFinalScores()

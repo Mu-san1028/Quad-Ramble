@@ -4,6 +4,8 @@ using Unity.Netcode;
 public class BombPushBomb : NetworkBehaviour
 {
     [SerializeField] private GameObject explosionEffectPrefab; // 爆発エフェクトのプレハブ
+    [Tooltip("爆発エフェクトのワールド回転（度）。弾の向きには追従しません。")]
+    [SerializeField] private Vector3 explosionEffectRotation = Vector3.zero;
 
     private bool hasExploded;
     private Rigidbody bombRigidbody;
@@ -52,7 +54,7 @@ public class BombPushBomb : NetworkBehaviour
         if (explosionEffectPrefab != null)
         {
             // 演出用オブジェクトはNetworkObjectにせず、全端末で同じ場所に表示する。
-            ShowExplosionClientRpc(transform.position);
+            ShowExplosionClientRpc(transform.position, this.explosionEffectRotation);
         }
 
         // Spawn済みNetworkObjectをDestroyすると各端末で状態がずれるため、Despawnで通知する。
@@ -63,9 +65,9 @@ public class BombPushBomb : NetworkBehaviour
     }
 
     [Rpc(SendTo.ClientsAndHost)]
-    private void ShowExplosionClientRpc(Vector3 position)
+    private void ShowExplosionClientRpc(Vector3 position, Vector3 rotationEuler)
     {
         if (explosionEffectPrefab != null)
-            Instantiate(explosionEffectPrefab, position, Quaternion.identity);
+            Instantiate(explosionEffectPrefab, position, Quaternion.Euler(rotationEuler));
     }
 }

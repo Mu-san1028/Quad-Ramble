@@ -16,7 +16,10 @@ public enum SEType
     ItemPickup,
     PowerUpPickup,
     WeaponSelect,
-    RoundFinish
+    RoundFinish,
+    RoundPointAdd,
+    TerritoryPointGain,
+    BlockBreak
 }
 
 public class SEAudio : MonoBehaviour
@@ -84,6 +87,14 @@ public class SEAudio : MonoBehaviour
 
             return;
         }
+    }
+
+    public void Play(AudioClip clip, float volume = 1f)
+    {
+        if (!this.seEnabled || this.source == null || clip == null)
+            return;
+
+        this.source.PlayOneShot(clip, Mathf.Clamp(volume, 0f, 2f));
     }
 
     private static bool ReadSEEnabled()

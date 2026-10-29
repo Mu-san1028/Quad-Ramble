@@ -1,23 +1,27 @@
 using UnityEngine;
+using Unity.Netcode;
 
 public class BombSensorField : MonoBehaviour
 {
     [SerializeField] private float loseTime = 5f;
+    [SerializeField] private int rankDropPerExplosion = 1; // 爆発1回で順位を下げる段数
 
     private BombPushBomb bombPushBomb;
-    private PlayerController player;
+    private PlayerController territoryOwner;
     private float bombStayTime;
-    private bool playerLost;
+    private bool penaltyApplied;
 
     void Update()
     {
-        if (bombPushBomb == null || player == null || playerLost) return;
+        // タイマーとペナルティはサーバーだけで確定する。
+        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer) return;
+        if (bombPushBomb == null || territoryOwner == null || penaltyApplied) return;
 
         bombStayTime += Time.deltaTime;
         if (bombStayTime >= loseTime)
         {
-            playerLost = true;
-            LosePlayer();
+            penaltyApplied = true;
+            ApplyTerritoryPenalty();
             bombPushBomb.Explode();
         }
     }
@@ -30,18 +34,10 @@ public class BombSensorField : MonoBehaviour
             if (bombPushBomb != null)
             {
                 bombStayTime = 0f;
-                playerLost = false;
+                penaltyApplied = false;
             }
         }
 
-        if (player == null)
-        {
-            player = other.GetComponentInParent<PlayerController>();
-            if (player != null)
-            {
-                Debug.Log($"Player {player.name} entered the bomb sensor field.");
-            }
-        }
     }
 
     void OnTriggerExit(Collider other)
@@ -51,21 +47,33 @@ public class BombSensorField : MonoBehaviour
         {
             bombPushBomb = null;
             bombStayTime = 0f;
-            playerLost = false;
+            penaltyApplied = false;
         }
 
     }
 
+    // PlayerSpawnerがラウンド開始時に、その陣地に対応するプレイヤーを割り当てる。
     public void SetPlayerController(PlayerController player)
     {
-        this.player = player;
+        this.territoryOwner = player;
+        this.SetTerritoryActive(player != null);
     }
 
-    void LosePlayer()
+    /// <summary>プレイヤーがいない陣地はBoxColliderを通常の障害物にする。</summary>
+    public void SetTerritoryActive(bool hasOwner)
     {
-        if (player == null || PlayerManager.Instance == null) return;
+        BoxCollider territoryCollider = GetComponent<BoxCollider>();
+        if (territoryCollider == null) return;
 
-        player.Eliminate();
-        PlayerManager.Instance.DropOut(player);
+        // 空き陣地はIsTriggerを外し、爆弾が物理的に通過できないようにする。
+        territoryCollider.isTrigger = hasOwner;
+    }
+
+    private void ApplyTerritoryPenalty()
+    {
+        if (territoryOwner == null) return;
+
+        // 爆発のたびに順位低下回数を記録し、終了時の配点に反映する。
+        BombPushRoundScoring.AddRankDrop(territoryOwner, rankDropPerExplosion);
     }
 }

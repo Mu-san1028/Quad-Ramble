@@ -38,4 +38,5 @@ public class PlayerSpawner : MonoBehaviour
             interactableObject.Interact(player);
         }
     }
+
 }

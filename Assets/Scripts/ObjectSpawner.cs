@@ -1,4 +1,5 @@
 using UnityEngine;
+using Unity.Netcode;
 
 public class ObjectSpawner : MonoBehaviour
 {
@@ -21,6 +22,9 @@ public class ObjectSpawner : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
+        // スポーン判断とタイマーはサーバーだけで進める。
+        // 各クライアントでも実行すると、それぞれ別の爆弾を作ってしまう。
+        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer) return;
         if (currentSpawnCount <= 0)
         {
             spawnTimer += Time.deltaTime;
@@ -43,9 +47,22 @@ public class ObjectSpawner : MonoBehaviour
 
     public void Spawn()
     {
+        // 手動呼び出しでも二重生成されないよう、入口でもサーバー権限を確認する。
+        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer) return;
+
         if (objectPrefab && spawnPoint)
         {
-            Instantiate(objectPrefab, spawnPoint.position, spawnPoint.rotation);
+            GameObject instance = Instantiate(objectPrefab, spawnPoint.position, spawnPoint.rotation);
+            NetworkObject networkObject = instance.GetComponent<NetworkObject>();
+            if (networkObject == null)
+            {
+                Debug.LogError("スポーンするPrefabにNetworkObjectがありません。", instance);
+                Destroy(instance);
+                return;
+            }
+
+            // Spawn()を呼ぶことで、接続中のクライアントにも同じBombが生成される。
+            networkObject.Spawn(destroyWithScene: true);
             currentSpawnCount++;
         }
     }

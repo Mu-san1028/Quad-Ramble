@@ -137,6 +137,10 @@ public class PlayerController : NetworkBehaviour
     [Header("射撃・Raycast設定")]
     public LayerMask shootableLayers; // 撃てる対象のレイヤー（Player自身を除外するため）
     [SerializeField] private LayerMask breakableLayers;  // 壊せるブロック
+    [SerializeField] private LayerMask bombPushLayers;   // BombPushBomb専用レイヤー
+
+    // 近接範囲と投擲爆発範囲で共通して調べる対象レイヤー。
+    private LayerMask attackableLayers => this.shootableLayers | this.breakableLayers | this.bombPushLayers;
 
     public float shootRange = 100f;   // 弾が届く距離
 
@@ -1334,7 +1338,7 @@ public class PlayerController : NetworkBehaviour
         Items weaponKey = ItemDatabase.Instance.GetKey(weaponData);
         this.PlayWeaponUseSE(weaponData, weaponKey);
         var hits = weaponData.attackRange.GetHitTargets(transform.position, transform.rotation,
-                                                        shootableLayers | breakableLayers,
+                                                        this.attackableLayers,
                                                         this.RangeMultiplier);
         var hitIds = new HashSet<ulong>();
 
@@ -1388,6 +1392,14 @@ public class PlayerController : NetworkBehaviour
 
         var wd = ItemDatabase.Instance.GetItem(weaponKey) as WeaponData;
         float power = (wd != null ? wd.Power : 10f) * this.PowerMultiplier;
+
+        // BombPushBombはプレイヤー用の衝撃処理ではなく、サーバー物理で吹き飛ばす。
+        if (NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(targetId, out var target)
+            && target.TryGetComponent<BombPushBomb>(out var bomb))
+        {
+            bomb.ApplyWeaponKnockback(direction, power);
+            return;
+        }
 
         this.ApplyKnockback(targetId, direction, power);
 
@@ -1609,7 +1621,7 @@ public class PlayerController : NetworkBehaviour
         bool hitPlayer = false;
 
         // 判定はサーバーだけが行う
-        var hits = Physics.OverlapSphere(center, radius, shootableLayers | breakableLayers);
+        var hits = Physics.OverlapSphere(center, radius, this.attackableLayers);
         var hitIds = new HashSet<ulong>();
         var targets = new List<NetworkObject>();
 
@@ -1621,6 +1633,14 @@ public class PlayerController : NetworkBehaviour
             {
                 if (target != null && target.NetworkObjectId != NetworkObjectId
                     && hitIds.Add(target.NetworkObjectId)) block.AddDamage(power);
+                continue;
+            }
+            var bomb = col.GetComponentInParent<BombPushBomb>();
+            if (bomb != null)
+            {
+                if (target != null && target.NetworkObjectId != NetworkObjectId
+                    && hitIds.Add(target.NetworkObjectId))
+                    bomb.ApplyWeaponKnockback(bomb.transform.position - center, power);
                 continue;
             }
             if (target != null) targets.Add(target);

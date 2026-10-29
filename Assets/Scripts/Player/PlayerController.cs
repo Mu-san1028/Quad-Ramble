@@ -197,7 +197,7 @@ public class PlayerController : NetworkBehaviour
     private TrajectorySimulator.Settings TrajectorySettings => new()
     {
         groundLayers = groundLayers,
-        blockerLayers = shootableLayers,
+        blockerLayers = shootableLayers | bombPushLayers,
         maxSteps = trajectoryMaxSteps,
         ignoreNetworkObjectId = NetworkObjectId,
     };
@@ -1385,24 +1385,31 @@ public class PlayerController : NetworkBehaviour
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Owner)]
     void SubmitShootServerRpc(Vector3 hitPoint, ulong targetId, Vector3 direction, Items weaponKey)
     {
+        // まずNetworkObjectを一度だけ取得し、プレイヤーとBombの両方を同じ対象から判定する。
         if (targetId == NetworkObjectId
-            || !NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(targetId, out var target)
-            || target.GetComponent<PlayerController>() == null)
+            || !NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(targetId, out var target))
             return;
 
         var wd = ItemDatabase.Instance.GetItem(weaponKey) as WeaponData;
         float power = (wd != null ? wd.Power : 10f) * this.PowerMultiplier;
 
-        // BombPushBombはプレイヤー用の衝撃処理ではなく、サーバー物理で吹き飛ばす。
-        if (NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(targetId, out var target)
-            && target.TryGetComponent<BombPushBomb>(out var bomb))
+        // BombPushBombには、プレイヤー用のノックバック処理ではなく物理的な力を加える。
+        if (target.TryGetComponent<BombPushBomb>(out var bomb))
         {
             bomb.ApplyWeaponKnockback(direction, power);
+        }
+        else if (target.GetComponent<PlayerController>() != null)
+        {
+            // プレイヤーの場合は既存の疲労・ノックバック処理を使う。
+            this.ApplyKnockback(targetId, direction, power);
+        }
+        else
+        {
+            // このRPCはプレイヤーとBomb用。ほかの種類のNetworkObjectには何もしない。
             return;
         }
 
-        this.ApplyKnockback(targetId, direction, power);
-
+        // Bombへの命中でもプレイヤーへの命中でも、設定されていれば命中音を再生する。
         if (wd != null && wd.hitSE != null)
             this.PlayWeaponSEClientRpc(weaponKey, true);
     }

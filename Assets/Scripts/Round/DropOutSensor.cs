@@ -48,6 +48,14 @@ public class DropOutSensor : MonoBehaviour
         if (GameManager.Instance.currentState != GameState.Playing) return;
         if (player == null || player.IsEliminated) return;
 
+        // Mazeでは落下しても脱落させず、専用ポイントのどれかへ戻します。
+        // 共通の落下センサーを使うことで、他のステージの処理には影響しません。
+        if (player.gameObject.scene.name == "Maze")
+        {
+            MazeRoundScoring.HandleFall(player);
+            return;
+        }
+
         // 記録があれば、脱落させずに引き戻す
         if (SavePointRegistry.TryConsumeRespawn(player, respawnLimit, respawnAtStart, out Vector3 position, out Quaternion rotation))
         {

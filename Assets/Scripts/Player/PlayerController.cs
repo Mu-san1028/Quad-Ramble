@@ -148,9 +148,17 @@ public class PlayerController : NetworkBehaviour
     private Vector3 AimForwardFlat => Quaternion.Euler(0f, aimYaw, 0f) * Vector3.forward;
 
     // 発射点は照準ピボット基準。水平方向へ離すので、下を向いても高さが変わらない
-    private Vector3 ThrowOrigin => aimPivot != null
-        ? aimPivot.position + AimForwardFlat * throwForwardOffset
-        : transform.position + transform.forward * throwForwardOffset;
+    private Vector3 ThrowOrigin
+    {
+        get
+        {
+            Vector3 origin = aimPivot != null
+                ? aimPivot.position + AimForwardFlat * throwForwardOffset
+                : transform.position + transform.forward * throwForwardOffset;
+            var weapon = playerItem != null ? playerItem.CurrentWeapon?.itemData as WeaponData : null;
+            return origin + Vector3.up * (weapon != null ? weapon.launchHeightOffset : 0f);
+        }
+    }
 
     [Header("軌道表示")]
     [SerializeField] private int trajectoryMaxSteps = 60; // サーバーの弾道判定もこの値を使う

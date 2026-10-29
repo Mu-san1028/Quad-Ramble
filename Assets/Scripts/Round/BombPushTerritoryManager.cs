@@ -10,16 +10,30 @@ public class BombPushTerritoryManager : NetworkBehaviour
     [SerializeField] private BombSensorField[] territoryFields;
     // 各ビットが陣地の所有有無を表す。値はサーバーが決めて全端末へ同期する。
     private readonly NetworkVariable<ulong> occupiedTerritoryMask = new();
+    // 全プレイヤーのスポーンが完了した後、ラウンドごとに一度だけ陣地を確定する。
+    private bool territoriesInitialized;
 
     public override void OnNetworkSpawn()
     {
         this.occupiedTerritoryMask.OnValueChanged += this.OnOccupiedTerritoriesChanged;
 
-        if (IsServer)
-            this.AssignTerritoryOwners();
+        // Clientはサーバーから届いた現在の設定を適用する。
+        // ServerはRoundManagerの準備完了後に人数を確定してから適用する。
+        if (!IsServer)
+            this.ApplyTerritoryAvailability(this.occupiedTerritoryMask.Value);
+    }
 
-        // ClientはNetworkVariableの初期値を読み、Serverは自分の値も適用する。
-        this.ApplyTerritoryAvailability(this.occupiedTerritoryMask.Value);
+    private void Update()
+    {
+        // 陣地の空き判定は、プレイヤーが移動してもやり直さない。
+        // RoundManager.IsReadyは全プレイヤーのスポーン完了後にtrueになる。
+        if (!IsServer || this.territoriesInitialized
+            || RoundManager.Instance == null || !RoundManager.Instance.IsReady
+            || PlayerManager.Instance == null || this.territoryFields == null)
+            return;
+
+        this.territoriesInitialized = true;
+        this.AssignTerritoryOwners();
     }
 
     public override void OnNetworkDespawn()
@@ -27,7 +41,7 @@ public class BombPushTerritoryManager : NetworkBehaviour
         this.occupiedTerritoryMask.OnValueChanged -= this.OnOccupiedTerritoriesChanged;
     }
 
-    /// <summary>PlayerSpawnerの配置結果を使って、陣地の持ち主をサーバーで決める。</summary>
+    /// <summary>ラウンド開始時のプレイヤー数を使い、陣地の持ち主を一度だけ決める。</summary>
     private void AssignTerritoryOwners()
     {
         if (PlayerManager.Instance == null || this.territoryFields == null) return;
@@ -65,7 +79,7 @@ public class BombPushTerritoryManager : NetworkBehaviour
         this.ApplyTerritoryAvailability(currentMask);
     }
 
-    /// <summary>所有者の有無に応じて、各陣地ColliderのIsTriggerを切り替える。</summary>
+    /// <summary>開始時に確定した所有者の有無を各端末の陣地Colliderに適用する。</summary>
     private void ApplyTerritoryAvailability(ulong occupiedMask)
     {
         if (this.territoryFields == null) return;

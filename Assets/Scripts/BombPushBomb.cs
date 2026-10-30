@@ -40,7 +40,7 @@ public class BombPushBomb : NetworkBehaviour
             if (hasExploded) return;
             hasExploded = true;
             if (explosionEffectPrefab != null)
-                Instantiate(explosionEffectPrefab, transform.position, Quaternion.identity);
+                Instantiate(explosionEffectPrefab, transform.position, Quaternion.Euler(this.explosionEffectRotation));
             Destroy(gameObject);
             return;
         }

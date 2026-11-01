@@ -189,7 +189,7 @@ public partial class ConnectionContainer
                     && manager.gameObject.scene.name == sceneName
                     && player != null && player.LastPlacementRound == round
                     && inventory != null && inventory.LastWeaponsResetRound == round;
-                if (ready) SceneTransitionUI.Instance.SetStageName(manager.StageName);
+                if (ready) SceneTransitionUI.Instance.SetStageName(manager.StageName, manager.Description);
             }
 
             if (ready && SceneTransitionUI.Instance.MinimumHoldComplete) break;

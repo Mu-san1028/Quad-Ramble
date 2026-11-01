@@ -58,6 +58,8 @@ public class SceneTransitionUI : MonoBehaviour
     private RectTransform canvasRect;
     private Image background, inputShield;
     private CanvasGroup titleAlpha, stageAlpha;
+    private TextMeshProUGUI briefingText, statusText;
+    private string loadingMessage;
     private AudioSource audioSource;
     private TMP_MeshInfo[] originalMesh;
     private readonly Dictionary<EventSystem, GameObject> blockedEventSystems = new();
@@ -127,6 +129,16 @@ public class SceneTransitionUI : MonoBehaviour
         this.ConfigureText(this.stageText, this.stageFont != null ? this.stageFont : this.font, this.stageFontSize, this.stageColor);
         this.stageAlpha = this.stageText.GetComponent<CanvasGroup>();
         if (this.stageAlpha == null) this.stageAlpha = this.stageText.gameObject.AddComponent<CanvasGroup>();
+        this.briefingText = NewRect("RoundBriefing", this.stageText.transform).gameObject.AddComponent<TextMeshProUGUI>();
+        this.ConfigureText(this.briefingText, this.stageText.font, 30f, this.stageColor);
+        this.briefingText.transform.SetParent(this.stageText.transform, false);
+        this.briefingText.rectTransform.anchoredPosition = new Vector2(0f, -125f);
+        this.briefingText.rectTransform.sizeDelta = new Vector2(1100f, 120f);
+        this.statusText = NewRect("LoadingStatus", transform).gameObject.AddComponent<TextMeshProUGUI>();
+        this.ConfigureText(this.statusText, this.stageText.font, 25f, this.stageColor);
+        this.statusText.rectTransform.anchorMin = this.statusText.rectTransform.anchorMax = new Vector2(0.5f, 0f);
+        this.statusText.rectTransform.anchoredPosition = new Vector2(0f, 90f);
+        this.statusText.gameObject.SetActive(false);
         this.audioSource = GetComponent<AudioSource>();
         if (this.audioSource == null) this.audioSource = gameObject.AddComponent<AudioSource>();
         this.audioSource.playOnAwake = false;
@@ -181,6 +193,10 @@ public class SceneTransitionUI : MonoBehaviour
         this.stageText.gameObject.SetActive(true);
         this.roundText.text = title ? "QUAD RAMBLE" : results ? "RESULTS" : $"ROUND {round}";
         this.stageText.text = "";
+        this.briefingText.text = "";
+        this.loadingMessage = title ? "次の勝負で、また会おう" : results ? "勝負の結果を集計中" : "まもなく開幕！ ステージを準備中";
+        this.statusText.text = this.loadingMessage;
+        this.statusText.gameObject.SetActive(true);
         this.needsStage = !title && !results;
         this.stageReady = !this.needsStage;
         this.titleFinished = false;
@@ -193,11 +209,13 @@ public class SceneTransitionUI : MonoBehaviour
         this.BlockEventSystem();
     }
 
-    public void SetStageName(string stageName)
+    public void SetStageName(string stageName, string description = "")
     {
         // 新シーンのRoundManagerを確認した呼び出し元から受け取る。
         if (!this.needsStage || this.stageReady) return;
         this.stageText.text = stageName ?? "";
+        this.briefingText.text = description ?? "";
+        this.loadingMessage = "全員の準備を確認中。勝負はここから！";
         this.stageReady = true;
     }
 
@@ -206,6 +224,7 @@ public class SceneTransitionUI : MonoBehaviour
         if (!this.MinimumHoldComplete) return;
         this.RestoreCharacters();
         this.phase = Phase.Opening;
+        this.statusText.gameObject.SetActive(false);
         this.elapsed = 0f;
         if (this.openSE != null) this.audioSource.PlayOneShot(this.openSE, this.soundVolume);
     }
@@ -228,6 +247,8 @@ public class SceneTransitionUI : MonoBehaviour
         if (this.phase == Phase.Idle) return;
         float dt = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
         this.elapsed += dt;
+        if (this.statusText.gameObject.activeSelf)
+            this.statusText.text = this.loadingMessage + new string('.', (int)(Time.unscaledTime * 2f) % 4);
 
         if (this.phase == Phase.Closing)
         {

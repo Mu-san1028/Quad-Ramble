@@ -6,6 +6,7 @@ using UnityEngine.UI;
 
 public class TutorialController : MonoBehaviour
 {
+    private const float AimDetectionDuration = 5f;
     private enum Step { LowFence, Pickup, Aim, Attack, Break, Upgrade, HighFence, Clear }
     [SerializeField] private TMP_Text instruction;
     [SerializeField] private TMP_Text progress;
@@ -80,8 +81,8 @@ public class TutorialController : MonoBehaviour
                 break;
             case Step.Aim:
                 aimedFor = player.IsAimingAt(aimTarget) ? aimedFor + Time.deltaTime : 0f;
-                progress.text = $"3 / 7　照準検知：{Mathf.Clamp01(aimedFor / .5f):P0}";
-                if (aimedFor >= .5f) Advance();
+                SetProgress($"3 / 7　照準検知：{Mathf.Clamp01(aimedFor / AimDetectionDuration):P0}");
+                if (aimedFor >= AimDetectionDuration) Advance();
                 break;
             case Step.Break:
                 if (block.IsBroken) Advance();
@@ -133,7 +134,12 @@ public class TutorialController : MonoBehaviour
             "チュートリアル クリア！\n移動・照準・攻撃・強化をマスター！\nタイトルへ戻って対戦しよう"
         };
         instruction.text = messages[(int)step];
-        progress.text = step == Step.Clear ? "CLEAR!" : $"{(int)step + 1} / 7";
+        SetProgress(step == Step.Clear ? "CLEAR!" : $"{(int)step + 1} / 7");
+    }
+
+    private void SetProgress(string text)
+    {
+        progress.text = $"{text}　｜　作成者：{RoundManager.Instance.Author}";
     }
 
     public void Exit()

@@ -28,6 +28,9 @@ public class BreakableBlock : NetworkBehaviour
     [Tooltip("真上からの傾き。横方向は生成するたびにランダムになります。")]
     [SerializeField, Range(0f, 80f)] private float dropLaunchAngle = 20f;
 
+    public bool DamageEnabled { get; set; } = true;
+    public bool IsBroken => this.state.Value != BlockState.Intact;
+
     private readonly NetworkVariable<BlockState> state = new (BlockState.Intact);
     private readonly NetworkVariable<float> damage = new ();
 
@@ -67,7 +70,7 @@ public class BreakableBlock : NetworkBehaviour
     /// <summary>サーバーのみ。攻撃が当たったときに呼ぶ。耐久を超えたら壊れる</summary>
     public void AddDamage(float power)
     {
-        if (!IsServer) return;
+        if (!IsServer || !DamageEnabled) return;
         if (this.state.Value != BlockState.Intact) return;   // 二重破壊を弾く
 
         this.damage.Value += power;

@@ -129,6 +129,28 @@ public class PlayerController : NetworkBehaviour
     private Coroutine windupRoutine;   // 溜め中のコルーチン。ラウンドをまたいで残さない
     private bool fireHeld;
     private InputAction fireReleaseAction;
+    public event System.Action Jumped;
+    public event System.Action AttackPerformed;
+
+    // 弧を描く武器は画面中央ではなく、表示中の着弾予測と爆発半径で判定する。
+    public bool IsAimingAt(Collider target)
+    {
+        if (!isAiming || !IsControllable || target == null || !target.enabled || cameraRig.Main == null)
+            return false;
+        var weapon = playerItem != null ? playerItem.CurrentWeapon?.itemData as WeaponData : null;
+        if (weapon == null) return false;
+        if (weapon.weaponType == WeaponType.Throw)
+        {
+            float speed = weapon.throwSpeed * (weapon.FliesStraight ? RangeMultiplier : 1f);
+            Vector3 landing = TrajectorySimulator.Simulate(ThrowOrigin,
+                GetThrowDirection(weapon.launchAngle) * speed, weapon.gravityScale,
+                TrajectorySettings, out _, out bool hit);
+            float radius = Mathf.Max(.05f, weapon.blastRadius * RangeMultiplier);
+            return hit && target.bounds.SqrDistance(landing) <= radius * radius;
+        }
+        return target.bounds.SqrDistance(GetAimPoint()) < .0025f;
+    }
+
     public bool IsCharging => windupRoutine != null;
     public float ChargeProgress { get; private set; }
     private int nextProjectileId;
@@ -576,6 +598,7 @@ public class PlayerController : NetworkBehaviour
                 && velocity.y <= 0f && impact.y <= 0f && HasWalkableGround())
             {
                 velocity.y = Mathf.Sqrt(CurrentJumpHeight * -2f * gravity);
+                Jumped?.Invoke();
             }
         }
         else
@@ -709,6 +732,7 @@ public class PlayerController : NetworkBehaviour
         slot.nextFireTime = Time.time + Mathf.Max(0f, weapon.reloadTime);
         BeginMeleeEffect(weapon);
         FireWeapon(weapon);
+        AttackPerformed?.Invoke();
         playerItem.DiscardIfEmpty();
     }
     #endregion

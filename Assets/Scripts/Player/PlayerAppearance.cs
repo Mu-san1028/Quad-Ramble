@@ -66,6 +66,13 @@ public class PlayerAppearance : NetworkBehaviour
         }
     }
 
+    public void SetLocalCharacter(int index)
+    {
+        if (!IsOwner || CharacterDatabase.Instance == null || !CharacterDatabase.Instance.IsValidIndex(index)) return;
+        this.fallbackIndex = index;
+        this.Apply();
+    }
+
     private void HandleContainerReady(ConnectionContainer container)
     {
         container.OnConnectionsChanged -= this.HandleRosterChanged;

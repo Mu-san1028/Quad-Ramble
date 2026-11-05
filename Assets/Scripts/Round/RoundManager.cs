@@ -19,6 +19,8 @@ public class RoundManager : NetworkBehaviour
     public float IntroElapsed => this.PresentationStarted
         ? (float)(NetworkManager.ServerTime.Time - this.presentationStart.Value) : 0f;
 
+    [SerializeField] private bool tutorialMode;
+
     [Header("ラウンド設定")]
     [SerializeField] private float roundDuration = 90f;     // このステージの制限時間
     [SerializeField] private float countdownDuration = 4f;  // 3・2・1・Start! の合計
@@ -96,7 +98,14 @@ public class RoundManager : NetworkBehaviour
         }
 
         // ステージを直接開いてホストを開始した場合はLoadイベントが発生しない。
-        this.InitializePlayers();
+        if (this.tutorialMode) StartCoroutine(this.InitializeTutorial());
+        else this.InitializePlayers();
+    }
+
+    private IEnumerator InitializeTutorial()
+    {
+        while (IsSpawned && PlayerItem.Local == null) yield return null;
+        if (IsSpawned) this.InitializePlayers();
     }
 
     private void HandleLoadCompleted(string sceneName, LoadSceneMode mode,
@@ -199,6 +208,8 @@ public class RoundManager : NetworkBehaviour
             return;
         }
 
+        if (this.tutorialMode) return;
+
         this.remainingTime.Value -= Time.deltaTime;
         if (this.remainingTime.Value <= 0f)
         {
@@ -218,6 +229,7 @@ public class RoundManager : NetworkBehaviour
     
     public void EndRound()
     {
+        if (this.tutorialMode) return;
         if (!IsServer || !this.IsReady || this.IsRoundOver) return;
         StartCoroutine(this.EndRoundRoutine("Finish !"));
     }

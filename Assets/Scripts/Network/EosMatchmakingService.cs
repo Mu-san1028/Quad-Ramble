@@ -43,7 +43,7 @@ public sealed class EosMatchmakingService : MonoBehaviour
 
     private async Task InitializeAsync()
     {
-        Status = "EOSにログインしています…";
+        Status = "";
         if (!File.Exists(Path.Combine(Application.streamingAssetsPath, "EOS", "eos_product_config.json")))
             throw new InvalidOperationException("EOS未設定です。EOS Plugin → EOS Configurationで設定してください。");
         var product = Config.Get<ProductConfig>();

@@ -48,6 +48,7 @@ public class TutorialSession : MonoBehaviour
     public static bool Active { get; private set; }
     private UnityTransport transport;
     private UnityTransport.ConnectionAddressData address;
+    private NetworkTransport previousTransport;
 
     public void Begin()
     {
@@ -60,6 +61,8 @@ public class TutorialSession : MonoBehaviour
     {
         var manager = NetworkManager.Singleton;
         transport = manager.GetComponent<UnityTransport>();
+        previousTransport = manager.NetworkConfig.NetworkTransport;
+        manager.NetworkConfig.NetworkTransport = transport;
         address = transport.ConnectionData;
         // 空きポートをOSに割り当ててもらい、展示用の他プロセスと競合させない。
         transport.SetConnectionData(true, "127.0.0.1", 0, "127.0.0.1");
@@ -74,6 +77,7 @@ public class TutorialSession : MonoBehaviour
         while (SceneManager.GetActiveScene().name != "Title") yield return null;
         transport.SetConnectionData(false, address.Address, address.Port, address.ServerListenAddress);
         transport.ConnectionData = address;
+        manager.NetworkConfig.NetworkTransport = previousTransport;
         Active = false;
         Destroy(gameObject);
     }

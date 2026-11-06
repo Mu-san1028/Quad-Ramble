@@ -27,6 +27,7 @@ public class TitleInputController : MonoBehaviour
 
     private bool titleInputEnabled;
     private bool characterInputEnabled;
+    private bool preparationInputEnabled;
     private bool waitingForRelease = true;
     private NetworkConnect.ConnectionState previousConnectionState;
 
@@ -72,7 +73,7 @@ public class TitleInputController : MonoBehaviour
             pad = null;
 
         // Relayでは各ウィンドウで参加コードを入力できるようにする。
-        bool allowKeyboard = LocalGamepad.Seat == 0 || this.networkConnect.UsesRelay;
+        bool allowKeyboard = LocalGamepad.Seat == 0 || this.networkConnect.UsesRelay || this.networkConnect.UsesEOS;
         Keyboard keyboard = allowKeyboard ? Keyboard.current : null;
         Mouse mouse = allowKeyboard ? Mouse.current : null;
         bool keyboardAvailable = keyboard != null && keyboard.added;
@@ -128,6 +129,34 @@ public class TitleInputController : MonoBehaviour
             if (!this.titleInputEnabled)
                 this.TryEnableTitleInput();
 
+            if (this.CanAcceptTitleInput() && ((this.pairedKeyboard?.oKey.wasPressedThisFrame ?? false)
+                || (this.pairedPad?.buttonNorth.wasPressedThisFrame ?? false)))
+            {
+                this.StopInput();
+                this.waitingForRelease = true;
+                this.networkConnect.StartOnlineMatching();
+            }
+
+            return;
+        }
+
+        if (this.networkConnect.State == NetworkConnect.ConnectionState.Preparing
+            || this.networkConnect.State == NetworkConnect.ConnectionState.Connecting)
+        {
+            // 準備中もマウスの退出ボタンとキャンセル操作は受け付ける。
+            if (!this.preparationInputEnabled)
+            {
+                this.StopInput();
+                this.playerInput.SwitchCurrentActionMap("UI");
+                this.uiInputModule.enabled = true;
+                this.uiInputModule.move?.action?.Disable();
+                this.uiInputModule.submit?.action?.Disable();
+                this.uiInputModule.cancel?.action?.Disable();
+                this.preparationInputEnabled = true;
+            }
+            if (this.CheckReleased() && ((this.pairedKeyboard?.escapeKey.wasPressedThisFrame ?? false)
+                || (this.pairedPad?.buttonEast.wasPressedThisFrame ?? false)))
+                this.networkConnect.LeaveRoom();
             return;
         }
 
@@ -347,6 +376,7 @@ public class TitleInputController : MonoBehaviour
                 || this.pairedKeyboard.upArrowKey.isPressed
                 || this.pairedKeyboard.downArrowKey.isPressed
                 || this.pairedKeyboard.bKey.isPressed
+                || this.pairedKeyboard.oKey.isPressed
                 || this.pairedKeyboard.leftArrowKey.isPressed
                 || this.pairedKeyboard.rightArrowKey.isPressed
                 || this.pairedKeyboard.enterKey.isPressed
@@ -360,6 +390,7 @@ public class TitleInputController : MonoBehaviour
 
             held = this.pairedPad.buttonSouth.isPressed
                 || this.pairedPad.buttonEast.isPressed
+                || this.pairedPad.buttonNorth.isPressed
                 || this.pairedPad.dpad.ReadValue() != Vector2.zero
                 || this.pairedPad.leftStick.ReadValue().sqrMagnitude > 0.04f
                 || this.pairedPad.rightStick.ReadValue().sqrMagnitude > 0.04f;
@@ -369,6 +400,7 @@ public class TitleInputController : MonoBehaviour
         {
             held |= this.pairedPad.buttonSouth.isPressed
                 || this.pairedPad.buttonEast.isPressed
+                || this.pairedPad.buttonNorth.isPressed
                 || this.pairedPad.dpad.ReadValue() != Vector2.zero;
         }
 
@@ -384,6 +416,7 @@ public class TitleInputController : MonoBehaviour
     {
         this.titleInputEnabled = false;
         this.characterInputEnabled = false;
+        this.preparationInputEnabled = false;
 
         this.uiInputModule.enabled = false;
         this.playerInput.actions.Disable();

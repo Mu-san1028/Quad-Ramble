@@ -187,7 +187,8 @@ public class LobbyController : MonoBehaviour
                 break;
 
             case NetworkConnect.ConnectionState.Preparing:
-                SetText(this.connectText, "オンライン接続を準備しています…");
+                SetText(this.connectText, this.networkConnect.UsesEOS
+                    ? this.networkConnect.OnlineStatus : "オンライン接続を準備しています…");
                 break;
 
             case NetworkConnect.ConnectionState.Connecting:

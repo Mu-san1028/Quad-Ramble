@@ -240,7 +240,7 @@ public sealed class EosMatchmakingService : MonoBehaviour
         var container = ConnectionContainer.Instance;
         var manager = GetComponent<NetworkManager>();
         if (container == null || container.IsTransitioning || container.CurrentRound > 0
-            || manager.ConnectedClientsIds.Count >= container.RequiredPlayerCount) return false;
+            || manager.ConnectedClientsIds.Count + container.BotCount >= container.RequiredPlayerCount) return false;
         var copy = new CopyLobbyDetailsHandleOptions { LobbyId = LobbyId, LocalUserId = user };
         if (lobbies.CopyLobbyDetailsHandle(ref copy, out var details) != Result.Success) return false;
         try

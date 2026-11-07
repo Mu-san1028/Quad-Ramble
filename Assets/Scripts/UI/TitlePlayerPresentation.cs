@@ -74,7 +74,7 @@ public class TitlePlayerPresentation : MonoBehaviour
 
             player.SetTitleMode(true);
 
-            if (player.IsOwner)
+            if (player.IsLocalHuman)
             {
                 this.localPlayer = state;
                 this.RestoreVisuals(state);
@@ -94,7 +94,7 @@ public class TitlePlayerPresentation : MonoBehaviour
             if (state.player == null || !state.player.IsSpawned)
                 continue;
 
-            if (state.player.IsOwner)
+            if (state.player.IsLocalHuman)
             {
                 this.PlaceLocalPlayer(state);
             }
@@ -158,7 +158,7 @@ public class TitlePlayerPresentation : MonoBehaviour
             return;
 
         PlayerController player = this.localPlayer.player;
-        if (player == null || !player.IsSpawned || !player.IsOwner || !player.IsTitleMode)
+        if (player == null || !player.IsSpawned || !player.IsLocalHuman || !player.IsTitleMode)
             return;
 
         this.localPlayer.appearance?.RotateTitleModel(degrees);

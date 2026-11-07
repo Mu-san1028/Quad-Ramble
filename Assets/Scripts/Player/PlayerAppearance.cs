@@ -90,7 +90,7 @@ public class PlayerAppearance : NetworkBehaviour
             return;
         }
 
-        Connection connection = ConnectionContainer.Instance?.GetConnection(this.OwnerClientId);
+        Connection connection = ConnectionContainer.Instance?.GetConnectionByPlayerId(GetComponentInParent<PlayerController>().ParticipantId);
         int index = connection?.CharacterIndex ?? -1;
         if (index < 0) index = this.fallbackIndex;
         if (index < 0 || index == this.appliedIndex) return;

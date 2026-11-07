@@ -218,11 +218,11 @@ public sealed class SignalSprintRound : ArenaRoundController
 
     private Runner GetRunner(PlayerController player)
     {
-        if (this.runners.TryGetValue(player.OwnerClientId, out Runner runner)) return runner;
+        if (this.runners.TryGetValue(player.ParticipantId, out Runner runner)) return runner;
         int lane = this.runners.Count;
         runner = new Runner { Lane = lane, StateIndex = this.runnerStates.Count };
-        this.runnerStates.Add(new SignalRunnerSnapshot { ClientId = player.OwnerClientId });
-        this.runners.Add(player.OwnerClientId, runner);
+        this.runnerStates.Add(new SignalRunnerSnapshot { ClientId = player.ParticipantId });
+        this.runners.Add(player.ParticipantId, runner);
         return runner;
     }
 

@@ -52,7 +52,7 @@ public sealed class TerritoryScoreFeedback : MonoBehaviour
         {
             foreach (var zone in this.director.Zones)
             {
-                if (zone != null && zone.IsScoring && zone.OccupantClientId == player.OwnerClientId)
+                if (zone != null && zone.IsScoring && zone.OccupantClientId == player.ParticipantId)
                 {
                     scoring = true;
                     break;
@@ -81,7 +81,7 @@ public sealed class TerritoryScoreFeedback : MonoBehaviour
     private void OnPointsAwarded(CaptureZone zone, ulong clientId)
     {
         var player = this.LocalPlayer();
-        if (player == null || player.OwnerClientId != clientId || !this.RoundActive()
+        if (player == null || player.ParticipantId != clientId || !this.RoundActive()
             || zone == null || zone.gameObject.scene != this.gameObject.scene
             || Time.unscaledTime < this.nextSoundTime) return;
 

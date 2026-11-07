@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
 
@@ -155,7 +155,7 @@ public class CaptureZone : NetworkBehaviour
             }
 
             sole = status;
-            owner = player.OwnerClientId;
+            owner = player.ParticipantId;
         }
         if (sole) result = new CaptureZoneSnapshot(CaptureZoneState.Occupied, owner);
         return sole;

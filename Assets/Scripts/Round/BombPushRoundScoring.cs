@@ -47,7 +47,7 @@ public class BombPushRoundScoring : RoundScoring
             int byExplosionCount = leftDrops.CompareTo(rightDrops);
             return byExplosionCount != 0
                 ? byExplosionCount
-                : left.OwnerClientId.CompareTo(right.OwnerClientId);
+                : left.ParticipantId.CompareTo(right.ParticipantId);
         });
 
         int rank = 1;
@@ -71,7 +71,7 @@ public class BombPushRoundScoring : RoundScoring
             for (int playerIndex = firstPlayerIndex; playerIndex < nextRankIndex; playerIndex++)
             {
                 PlayerController player = players[playerIndex];
-                ConnectionContainer.Instance.GetConnection(player.OwnerClientId)?.AddScore(awardedPoints);
+                ConnectionContainer.Instance.GetConnectionByPlayerId(player.ParticipantId)?.AddScore(awardedPoints);
             }
 
             // 同順位の人数分、次に使う順位を進める。

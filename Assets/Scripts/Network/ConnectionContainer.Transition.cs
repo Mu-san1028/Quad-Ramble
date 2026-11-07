@@ -189,6 +189,18 @@ public partial class ConnectionContainer
                     && manager.gameObject.scene.name == sceneName
                     && player != null && player.LastPlacementRound == round
                     && inventory != null && inventory.LastWeaponsResetRound == round;
+                // Botは通信ACKを送らない。各端末で生成・配置・持ち物リセットを確認する。
+                foreach (var participant in PlayerManager.Instance.AllPlayers)
+                {
+                    if (participant == null || !participant.IsBot) continue;
+                    var botInventory = participant.GetComponent<PlayerItem>();
+                    ready &= participant.IsSpawned && participant.LastPlacementRound == round
+                        && botInventory != null && botInventory.LastWeaponsResetRound == round;
+                }
+                int receivedBots = 0;
+                foreach (var participant in PlayerManager.Instance.AllPlayers)
+                    if (participant != null && participant.IsSpawned && participant.IsBot) receivedBots++;
+                ready &= receivedBots == this.BotCount;
                 if (ready) SceneTransitionUI.Instance.SetStageName(manager.StageName, manager.Description);
             }
 

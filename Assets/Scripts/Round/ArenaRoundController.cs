@@ -67,12 +67,12 @@ public abstract class ArenaRoundController : RoundScoring, IStageTick
             if (player.transform.position.y >= fallHeight
                 && Mathf.Abs(offset.x) <= arenaHalfSize.x && Mathf.Abs(offset.z) <= arenaHalfSize.y)
                 continue;
-            if (respawnCooldowns.TryGetValue(player.OwnerClientId, out float until) && Elapsed < until)
+            if (respawnCooldowns.TryGetValue(player.ParticipantId, out float until) && Elapsed < until)
                 continue;
             Transform point = respawnPoints[i % respawnPoints.Length];
             if (point == null) continue;
             // 所有者のNetworkTransformが戻るまで多重テレポートを抑止する。
-            respawnCooldowns[player.OwnerClientId] = Elapsed + 1f;
+            respawnCooldowns[player.ParticipantId] = Elapsed + 1f;
             player.Teleport(point.position, point.rotation);
             PlayerRespawned(player);
         }
@@ -106,7 +106,7 @@ public abstract class ArenaRoundController : RoundScoring, IStageTick
             scores.Add(player.GetComponent<PlayerStatus>()?.RoundScore ?? 0);
         }
         for (int i = 0; i < players.Count; i++)
-            ConnectionContainer.Instance.GetConnection(players[i].OwnerClientId)?.AddScore(
+            ConnectionContainer.Instance.GetConnectionByPlayerId(players[i].ParticipantId)?.AddScore(
                 GameManager.Instance.GetPointsForRank(RankForScore(scores[i], scores)));
     }
 }

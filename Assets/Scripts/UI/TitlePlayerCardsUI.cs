@@ -81,19 +81,20 @@ public sealed class TitlePlayerCardsUI : MonoBehaviour
             var character = connection != null && CharacterDatabase.Instance != null
                 ? CharacterDatabase.Instance.Get(connection.CharacterIndex) : null;
             bool ready = connection != null && connection.IsReady;
-            if (card.initialized && connection != null && card.clientId == connection.ClientId
+            if (card.initialized && connection != null && card.clientId == connection.Id
                 && !card.ready && ready) card.bounce = this.bounceDuration;
-            if (connection == null || (card.initialized && card.clientId != connection.ClientId))
+            if (connection == null || (card.initialized && card.clientId != connection.Id))
                 card.bounce = 0f;
 
             card.initialized = connection != null;
-            card.clientId = connection != null ? connection.ClientId : ulong.MaxValue;
+            card.clientId = connection != null ? connection.Id : ulong.MaxValue;
             card.ready = ready;
             Color color = i < this.playerColors.Length ? this.playerColors[i] : Color.gray;
             if (card.badge != null) card.badge.color = color;
             foreach (var edge in card.frame) if (edge != null) edge.color = color;
             if (card.playerNumber != null) card.playerNumber.text = $"{i + 1}P";
-            if (card.characterName != null) card.characterName.text = character != null ? character.displayName
+            if (card.characterName != null) card.characterName.text = connection != null && connection.IsBot
+                ? connection.Name : character != null ? character.displayName
                 : connection != null ? "キャラを選ぼう" : "参加待ち";
             if (card.readyState != null)
             {

@@ -64,7 +64,7 @@ public class PlayerStatus : NetworkBehaviour
 
     public override void OnNetworkSpawn()
     {
-        if (IsOwner) Local = this;
+        if (GetComponent<PlayerController>().IsLocalHuman) Local = this;
     }
 
     public override void OnNetworkDespawn()

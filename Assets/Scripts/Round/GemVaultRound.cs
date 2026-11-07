@@ -84,18 +84,18 @@ public sealed class GemVaultRound : ArenaRoundController
             float nearestSquared = float.PositiveInfinity;
             foreach (PlayerController player in players)
             {
-                if (!CanInteract(player) || GetCarried(player.OwnerClientId) >= Capacity) continue;
+                if (!CanInteract(player) || GetCarried(player.ParticipantId) >= Capacity) continue;
                 Vector3 offset = player.transform.position - gemNodes[i].position;
                 if (!IsWithinReach(offset, pickupRadius, interactionHeight)) continue;
                 float distanceSquared = offset.x * offset.x + offset.z * offset.z;
                 if (winner != null && (distanceSquared > nearestSquared
-                    || (distanceSquared == nearestSquared && player.OwnerClientId >= winner.OwnerClientId))) continue;
+                    || (distanceSquared == nearestSquared && player.ParticipantId >= winner.ParticipantId))) continue;
                 winner = player;
                 nearestSquared = distanceSquared;
             }
 
             if (!winner) continue;
-            SetCarried(winner.OwnerClientId, GetCarried(winner.OwnerClientId) + 1);
+            SetCarried(winner.ParticipantId, GetCarried(winner.ParticipantId) + 1);
             mask &= ~bit;
             nextAppearance[i] = Elapsed + Mathf.Max(.1f, gemRespawnSeconds);
         }
@@ -104,12 +104,12 @@ public sealed class GemVaultRound : ArenaRoundController
         foreach (PlayerController player in players)
         {
             if (!CanInteract(player)) continue;
-            int amount = GetCarried(player.OwnerClientId);
+            int amount = GetCarried(player.ParticipantId);
             if (amount <= 0 || !IsWithinReach(player.transform.position - bank.position,
                 bankRadius, interactionHeight)) continue;
             if (!player.TryGetComponent<PlayerStatus>(out var status) || !status.IsSpawned) continue;
             status.AddRoundScore(amount);
-            SetCarried(player.OwnerClientId, 0);
+            SetCarried(player.ParticipantId, 0);
         }
 
         // 切断したプレイヤーの手持ちは次回の接続やラウンドに持ち越さない。
@@ -118,7 +118,7 @@ public sealed class GemVaultRound : ArenaRoundController
             bool present = false;
             foreach (PlayerController player in players)
             {
-                if (player && player.IsSpawned && player.OwnerClientId == carried[i].ClientId)
+                if (player && player.IsSpawned && player.ParticipantId == carried[i].ClientId)
                 {
                     present = true;
                     break;
@@ -142,7 +142,7 @@ public sealed class GemVaultRound : ArenaRoundController
 
     protected override void PlayerRespawned(PlayerController player)
     {
-        if (player) SetCarried(player.OwnerClientId, 0);
+        if (player) SetCarried(player.ParticipantId, 0);
     }
 
     public int GetCarried(ulong clientId)
@@ -171,7 +171,7 @@ public sealed class GemVaultRound : ArenaRoundController
         if (PlayerManager.Instance != null)
         {
             foreach (PlayerController player in PlayerManager.Instance.AllPlayers)
-                if (player && player.OwnerClientId == clientId && player.TryGetComponent<PlayerStatus>(out var status))
+                if (player && player.ParticipantId == clientId && player.TryGetComponent<PlayerStatus>(out var status))
                 {
                     score = status.RoundScore;
                     break;

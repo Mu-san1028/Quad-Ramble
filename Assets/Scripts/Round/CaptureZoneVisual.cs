@@ -75,7 +75,7 @@ public sealed class CaptureZoneVisual : MonoBehaviour
         if (state.State == CaptureZoneState.Occupied)
         {
             // 識別色を持つ既存データはないため、名簿のIDに4色を割り当てる。
-            ulong id = ConnectionContainer.Instance?.GetConnection(state.Owner)?.Id ?? state.Owner;
+            ulong id = state.Owner; // 所有者は通信端末ではなく参加者ID。
             color = playerColors != null && playerColors.Length > 0 ? playerColors[(int)(id % (ulong)playerColors.Length)] : fallback;
         }
         else if (state.State == CaptureZoneState.Contested)

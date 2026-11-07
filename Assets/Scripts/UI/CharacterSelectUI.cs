@@ -150,7 +150,7 @@ public class CharacterSelectUI : MonoBehaviour
         for (int i = 0; i < this.icons.Count; i++)
         {
             Connection owner = container.GetOwnerOf(i);
-            bool isMine = owner != null && owner.ClientId == myId;
+            bool isMine = owner != null && !owner.IsBot && owner.ClientId == myId;
             this.icons[i].SetState(isMine, owner != null && !isMine, owner?.Name);
         }
 

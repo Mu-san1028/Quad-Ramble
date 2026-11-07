@@ -110,6 +110,12 @@ public class PlayerController : NetworkBehaviour
     private bool pendingStartFacing;
 
     public bool IsTitleMode { get; private set; }
+    private PlayerIdentity identity;
+    private PlayerIdentity Identity => identity != null ? identity : identity = GetComponent<PlayerIdentity>();
+    public bool IsBot => Identity != null && Identity.IsBot;
+    public bool IsLocalHuman => IsOwner && !IsBot;
+    public ulong ParticipantId => Identity != null && Identity.ParticipantId != ulong.MaxValue
+        ? Identity.ParticipantId : ConnectionContainer.Instance?.GetConnection(OwnerClientId)?.Id ?? ulong.MaxValue;
     public int LastPlacementRound { get; private set; } = -1;
 
     public bool IsControllable =>
@@ -243,7 +249,7 @@ public class PlayerController : NetworkBehaviour
         PlayerManager.Instance.AddPlayer(this);
         PlayerInput input = GetComponent<PlayerInput>();
 
-        if (this.IsOwner && !this.IsTitleMode)
+        if (this.IsLocalHuman && !this.IsTitleMode)
         {
             this.PairInputDevice(input);
         }
@@ -267,7 +273,7 @@ public class PlayerController : NetworkBehaviour
         PlayerInput input = GetComponent<PlayerInput>();
 
         bool canUseInput =
-            this.IsOwner
+            this.IsLocalHuman
             || (!this.IsSpawned && this.allowOfflineControl);
 
         if (!enabled && canUseInput)
@@ -341,7 +347,7 @@ public class PlayerController : NetworkBehaviour
         if (this.IsTitleMode && FindAnyObjectByType<TitleInputController>() == null)
             this.SetTitleMode(false);
 
-        if (!IsOwner) return;
+        if (!IsLocalHuman) return;
         this.ClearSpectating(false);
         isAiming = false;
         cameraRig.Rebind(aimPivot != null ? aimPivot : transform);
@@ -415,7 +421,7 @@ public class PlayerController : NetworkBehaviour
     [Rpc(SendTo.Owner)]
     private void ShowKnockoutOwnerRpc(int round)
     {
-        if (!IsOwner || (ConnectionContainer.Instance != null
+        if (!IsLocalHuman || (ConnectionContainer.Instance != null
             && ConnectionContainer.Instance.CurrentRound != round)) return;
         GetComponent<PlayerKOFeedback>()?.Play();
     }
@@ -481,7 +487,7 @@ public class PlayerController : NetworkBehaviour
             transform.rotation = this.teleportRotation;
             this.ResetFacing(this.teleportRotation);
             this.pendingStartFacing = false;
-            cameraRig.Rebind(aimPivot != null ? aimPivot : transform);
+            if (IsLocalHuman) cameraRig.Rebind(aimPivot != null ? aimPivot : transform);
         }
 
         controlsStopped = !movable;
@@ -521,6 +527,7 @@ public class PlayerController : NetworkBehaviour
     [Rpc(SendTo.ClientsAndHost)]
     private void TeleportClientRpc(Vector3 position, Quaternion rotation, int placementRound)
     {
+        this.LastPlacementRound = placementRound;
         GetComponent<PlayerAnimator>()?.ResetAirborneState();
         // モデルだけのTitle回転はNetworkTransformでは同期されないため全端末で戻す。
         GetComponentInChildren<PlayerAppearance>(true)?.ResetTitleModelRotation();
@@ -797,7 +804,7 @@ public class PlayerController : NetworkBehaviour
         }
 
         this.UpdateAimInput();
-        if (IsOwner && !this.IsEliminated)
+        if (IsLocalHuman && !this.IsEliminated)
             cameraRig.UpdateAim(isAiming, aimPitch);
 
         if (controller != null && controller.enabled && this.IsControllable)
@@ -846,7 +853,7 @@ public class PlayerController : NetworkBehaviour
     /// <summary>操作とは独立して、脱落した本人のカメラだけを生存者へ向ける。</summary>
     private void LateUpdate()
     {
-        if (!IsSpawned || !IsOwner) return;
+        if (!IsSpawned || !IsLocalHuman) return;
 
         var round = RoundManager.Instance;
         if (!this.IsEliminated || this.IsTitleMode || round == null || !round.IsSpawned || !round.IsReady)
@@ -916,7 +923,7 @@ public class PlayerController : NetworkBehaviour
     private bool TrySwitchSpectator(int direction)
     {
         if (SceneTransitionUI.InputBlocked) return true;
-        if (!IsSpawned || !IsOwner || !this.IsEliminated) return false;
+        if (!IsSpawned || !IsLocalHuman || !this.IsEliminated) return false;
 
         var round = RoundManager.Instance;
         if (!this.spectating || this.IsTitleMode || round == null || !round.IsSpawned
@@ -934,7 +941,7 @@ public class PlayerController : NetworkBehaviour
         if (candidates.Count == 0) return true;
 
         // 接続順で固定し、LとRが互いに逆順になるようにする。
-        candidates.Sort((a, b) => a.OwnerClientId.CompareTo(b.OwnerClientId));
+        candidates.Sort((a, b) => a.ParticipantId.CompareTo(b.ParticipantId));
         int index = candidates.IndexOf(this.spectatorTarget);
         int next = index < 0 ? (direction > 0 ? 0 : candidates.Count - 1)
             : (index + direction + candidates.Count) % candidates.Count;
@@ -958,8 +965,8 @@ public class PlayerController : NetworkBehaviour
         }
 
         var name = ConnectionContainer.Instance != null
-            ? ConnectionContainer.Instance.GetName(this.spectatorTarget.OwnerClientId) : null;
-        if (string.IsNullOrWhiteSpace(name)) name = $"Player {this.spectatorTarget.OwnerClientId + 1}";
+            ? ConnectionContainer.Instance.GetConnectionByPlayerId(this.spectatorTarget.ParticipantId)?.Name : null;
+        if (string.IsNullOrWhiteSpace(name)) name = $"Player {this.spectatorTarget.ParticipantId + 1}";
         this.spectatorHud.Show(name);
     }
 
@@ -986,7 +993,7 @@ public class PlayerController : NetworkBehaviour
     {
         if (!this.spectating) return;
 
-        if (restoreCamera && IsOwner)
+        if (restoreCamera && IsLocalHuman)
             this.cameraRig.Rebind(this.aimPivot != null ? this.aimPivot : transform);
 
         this.spectating = false;
@@ -1190,7 +1197,7 @@ public class PlayerController : NetworkBehaviour
         {
             DroppedItem item = hit.collider.GetComponentInParent<DroppedItem>();
             if (item != null)
-                item.RequestPickup();
+                item.RequestPickup(this);
         }
 
         // 接触面へ向かう成分だけを除去する。壁沿いの移動と斜面の上りは維持する。
@@ -1493,7 +1500,7 @@ public class PlayerController : NetworkBehaviour
     [Rpc(SendTo.Owner)]
     private void ShowDamageOwnerRpc(float damage, Vector3 position, int round, bool critical)
     {
-        if (!IsOwner || (ConnectionContainer.Instance != null
+        if (!IsLocalHuman || (ConnectionContainer.Instance != null
             && ConnectionContainer.Instance.CurrentRound != round)) return;
 
         GetComponent<PlayerDamageFeedback>()?.Show(damage, position, round, critical);

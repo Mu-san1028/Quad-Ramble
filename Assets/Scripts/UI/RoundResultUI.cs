@@ -164,7 +164,7 @@ public sealed class RoundResultUI : MonoBehaviour
             if (slot == null || slot.root == null || slot.boundPlayer == null) continue;
             foreach (var entry in this.round.RoundResults)
             {
-                if (entry.ClientId != slot.boundPlayer.OwnerClientId) continue;
+                if (entry.ParticipantId != slot.boundPlayer.ParticipantId) continue;
                 var rect = slot.root.transform as RectTransform;
                 var parent = rect != null ? rect.parent as RectTransform : null;
                 if (parent == null) continue;

@@ -4,14 +4,14 @@ using Unity.Netcode;
 /// <summary>結果演出用の、加点前後の確定値。</summary>
 public struct RoundScoreEntry : INetworkSerializable
 {
-    public ulong ClientId;
+    public ulong ParticipantId;
     public ulong PlayerId;
     public int Before;
     public int After;
 
     public void NetworkSerialize<T>(BufferSerializer<T> serializer) where T : IReaderWriter
     {
-        serializer.SerializeValue(ref ClientId);
+        serializer.SerializeValue(ref ParticipantId);
         serializer.SerializeValue(ref PlayerId);
         serializer.SerializeValue(ref Before);
         serializer.SerializeValue(ref After);
@@ -38,6 +38,7 @@ public struct RosterEntry : INetworkSerializable
     public FixedString64Bytes Name;
     public int CharacterIndex;
     public bool IsReady;
+    public bool IsBot;
 
     public void NetworkSerialize<T>(BufferSerializer<T> serializer) where T : IReaderWriter
     {
@@ -47,5 +48,6 @@ public struct RosterEntry : INetworkSerializable
         serializer.SerializeValue(ref Name);
         serializer.SerializeValue(ref CharacterIndex);
         serializer.SerializeValue(ref IsReady);
+        serializer.SerializeValue(ref IsBot);
     }
 }

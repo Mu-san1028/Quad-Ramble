@@ -16,7 +16,7 @@ public class PlayerChargeFeedback : MonoBehaviour
 
     private void LateUpdate()
     {
-        bool available = player != null && player.IsSpawned && player.IsOwner && player.IsControllable;
+        bool available = player != null && player.IsSpawned && player.IsLocalHuman && player.IsControllable;
         bool charging = available && player.IsCharging;
         if (wasCharging && available && !charging && player.ChargeProgress >= 1f)
             completedUntil = Time.unscaledTime + 0.12f;

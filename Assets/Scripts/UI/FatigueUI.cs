@@ -131,7 +131,7 @@ public class FatigueUI : MonoBehaviour
                 // 破棄済みの参照が残ることがあるので null チェックする
                 if (player == null) continue;
 
-                if (self == null && player.IsOwner) { self = player; continue; }
+                if (self == null && player.IsLocalHuman) { self = player; continue; }
                 if (next < this.slots.Length) this.Render(this.slots[next++], player);
             }
         }
@@ -180,7 +180,7 @@ public class FatigueUI : MonoBehaviour
         var status = player.GetComponent<PlayerStatus>();
         float fatigue = status != null ? status.Fatigue : 0f;
         var roster = ConnectionContainer.Instance;
-        var connection = roster != null ? roster.GetConnection(player.OwnerClientId) : null;
+        var connection = roster != null ? roster.GetConnectionByPlayerId(player.ParticipantId) : null;
         bool reset = slot.boundPlayer != player;
         slot.boundPlayer = player;
 
@@ -219,7 +219,7 @@ public class FatigueUI : MonoBehaviour
     public void RestorePlayerColor(SlotView slot)
     {
         if (slot == null || slot.boundPlayer == null) return;
-        var connection = ConnectionContainer.Instance?.GetConnection(slot.boundPlayer.OwnerClientId);
+        var connection = ConnectionContainer.Instance?.GetConnectionByPlayerId(slot.boundPlayer.ParticipantId);
         this.ApplyPlayerColor(slot, connection);
     }
 

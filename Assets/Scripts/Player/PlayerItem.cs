@@ -35,7 +35,7 @@ public class PlayerItem : NetworkBehaviour
     public override void OnNetworkSpawn()
     {
         this.LastWeaponsResetRound = -1;
-        if (IsOwner) Local = this;
+        if (GetComponent<PlayerController>().IsLocalHuman) Local = this;
     }
 
     public override void OnNetworkDespawn()
@@ -121,7 +121,7 @@ public class PlayerItem : NetworkBehaviour
     [Rpc(SendTo.Owner)]
     private void NotifyUpgradeOwnerRpc(string message)
     {
-        if (IsOwner)
+        if (GetComponent<PlayerController>().IsLocalHuman)
         {
             LocalItemNotice?.Invoke(message, NoticeType.Upgrade);
             SEAudio.Instance?.Play(SEType.PowerUpPickup);
@@ -159,7 +159,7 @@ public class PlayerItem : NetworkBehaviour
         if (needsEquip)
             EquipWeapon(slot);
 
-        if (IsOwner)
+        if (GetComponent<PlayerController>().IsLocalHuman)
         {
             LocalItemNotice?.Invoke(GetPickupMessage(weapon), NoticeType.Weapon);
             SEAudio.Instance?.Play(SEType.ItemPickup);
@@ -183,7 +183,7 @@ public class PlayerItem : NetworkBehaviour
 
                 EquipWeapon(nextIndex);
 
-                if (playSE && IsOwner)
+                if (playSE && GetComponent<PlayerController>().IsLocalHuman)
                     SEAudio.Instance?.Play(SEType.WeaponSelect);
 
                 break;

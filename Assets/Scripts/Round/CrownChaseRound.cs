@@ -34,7 +34,7 @@ public sealed class CrownChaseRound : ArenaRoundController
             if (this.HolderClientId == NoHolder)
                 return "中央の王冠を手に入れよう！";
 
-            string name = ConnectionContainer.Instance?.GetName(this.HolderClientId);
+            string name = ConnectionContainer.Instance?.GetConnectionByPlayerId(this.HolderClientId)?.Name;
             if (string.IsNullOrEmpty(name)) name = "プレイヤー";
             return $"{name} が王冠を保持中";
         }
@@ -76,7 +76,7 @@ public sealed class CrownChaseRound : ArenaRoundController
         // 直前のフレームから現在までの保持時間を、横取りされる側に先に加算する。
         if (deltaTime > 0f && float.IsFinite(deltaTime))
         {
-            this.scoreFractions.TryGetValue(holder.OwnerClientId, out double carried);
+            this.scoreFractions.TryGetValue(holder.ParticipantId, out double carried);
             carried += deltaTime;
             int points = (int)System.Math.Floor(carried);
             if (points > 0)
@@ -84,25 +84,25 @@ public sealed class CrownChaseRound : ArenaRoundController
                 holder.GetComponent<PlayerStatus>()?.AddRoundScore(points);
                 carried -= points;
             }
-            this.scoreFractions[holder.OwnerClientId] = carried;
+            this.scoreFractions[holder.ParticipantId] = carried;
         }
 
         if (NetworkManager.ServerTime.Time < this.protectedUntil.Value) return;
 
         PlayerController thief = this.FindNearest(holder.transform.position, this.stealRadius,
-            1.8f, holder.OwnerClientId);
+            1.8f, holder.ParticipantId);
         if (thief != null) this.TransferTo(thief);
     }
 
     protected override void PlayerRespawned(PlayerController player)
     {
-        if (player != null && player.OwnerClientId == this.HolderClientId)
+        if (player != null && player.ParticipantId == this.HolderClientId)
             this.ReturnCrown();
     }
 
     private void TransferTo(PlayerController player)
     {
-        this.holderClientId.Value = player.OwnerClientId;
+        this.holderClientId.Value = player.ParticipantId;
         this.protectedUntil.Value = NetworkManager.ServerTime.Time + this.protectionSeconds;
 
         // 取得直後だけ少し減速する。保護が終わる前に解除し、横取り後へ持ち越さない。
@@ -125,7 +125,7 @@ public sealed class CrownChaseRound : ArenaRoundController
         foreach (PlayerController player in PlayerManager.Instance.AllPlayers)
         {
             if (player != null && player.IsSpawned && !player.IsEliminated
-                && player.OwnerClientId == clientId)
+                && player.ParticipantId == clientId)
                 return player;
         }
         return null;
@@ -140,7 +140,7 @@ public sealed class CrownChaseRound : ArenaRoundController
         foreach (PlayerController player in PlayerManager.Instance.AllPlayers)
         {
             if (player == null || !player.IsSpawned || player.IsEliminated
-                || player.OwnerClientId == excluded
+                || player.ParticipantId == excluded
                 || !CanTouch(player.transform.position, position, radius, height))
                 continue;
 
@@ -148,7 +148,7 @@ public sealed class CrownChaseRound : ArenaRoundController
             float distance = delta.x * delta.x + delta.z * delta.z;
             if (nearest == null || distance < nearestDistance
                 || (distance == nearestDistance
-                    && player.OwnerClientId < nearest.OwnerClientId))
+                    && player.ParticipantId < nearest.ParticipantId))
             {
                 nearest = player;
                 nearestDistance = distance;

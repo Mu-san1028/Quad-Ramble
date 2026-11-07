@@ -31,12 +31,17 @@ public class DroppedItem : NetworkBehaviour
         this.initialized = true;
     }
 
-    public void RequestPickup()
+    public void RequestPickup(PlayerController requester = null)
     {
         if (!this.IsSpawned || Time.unscaledTime < this.nextRequestTime)
             return;
 
         this.nextRequestTime = Time.unscaledTime + this.requestInterval;
+        if (IsServer && requester != null && requester.IsBot)
+        {
+            TryPickupForPlayer(requester);
+            return;
+        }
         this.RequestPickupServerRpc();
     }
 
@@ -57,8 +62,17 @@ public class DroppedItem : NetworkBehaviour
             return;
 
         var player = client.PlayerObject.GetComponent<PlayerController>();
-        var inventory = client.PlayerObject.GetComponent<PlayerItem>();
-        var controller = client.PlayerObject.GetComponent<CharacterController>();
+        TryPickupForPlayer(player);
+    }
+
+    private void TryPickupForPlayer(PlayerController player)
+    {
+        if (!IsServer || !IsSpawned || !initialized || consumed || player == null) return;
+        var round = RoundManager.Instance;
+        if (round == null || !round.IsSpawned || round.IsIntro || round.IsRoundOver
+            || round.CountdownRemaining > RoundManager.StartDisplayDuration) return;
+        var inventory = player.GetComponent<PlayerItem>();
+        var controller = player.GetComponent<CharacterController>();
         if (player == null || inventory == null || controller == null || !controller.enabled
             || player.IsTitleMode || PlayerManager.Instance == null
             || !PlayerManager.Instance.Players.Contains(player) || !this.IsNear(controller))

@@ -12,6 +12,7 @@ public class Connection
     /// <summary>選んだキャラ。-1 は未選択</summary>
     public int CharacterIndex { get; set; } = -1;
     public bool IsReady { get; set; }
+    public bool IsBot { get; set; }
 
     public Connection(ulong id, ulong clientId, int score = 0)
     {
@@ -84,7 +85,7 @@ public partial class ConnectionContainer : NetworkBehaviour
     {
         if (!IsServer) return;
         this.transitionBarrier.Remove(clientId);
-        if (this.connections.RemoveAll(c => c.ClientId == clientId) == 0) return;
+        if (this.connections.RemoveAll(c => !c.IsBot && c.ClientId == clientId) == 0) return;
         this.BroadcastRoster();
     }
 
@@ -101,6 +102,12 @@ private void AppendServerRpc(ulong clientId, RpcParams rpcParams = default)
 
         if (this.GetConnection(senderId) != null)
             return;
+
+        if (this.IsTransitioning || this.CurrentRound > 0 || this.connections.Count >= this.RequiredPlayerCount)
+        {
+            if (senderId != NetworkManager.ServerClientId) NetworkManager.DisconnectClient(senderId);
+            return;
+        }
 
         // 途中離脱しても、既存プレイヤーの番号は詰め直さない。
         ulong playerId = 0;
@@ -128,7 +135,8 @@ private void AppendServerRpc(ulong clientId, RpcParams rpcParams = default)
                 {
                     Name = e.Name.ToString(),
                     CharacterIndex = e.CharacterIndex,
-                    IsReady = e.IsReady
+                    IsReady = e.IsReady,
+                    IsBot = e.IsBot
                 });
             }
         }
@@ -146,7 +154,8 @@ private void AppendServerRpc(ulong clientId, RpcParams rpcParams = default)
                 Score = c.Score,
                 Name = c.Name,
                 CharacterIndex = c.CharacterIndex,
-                IsReady = c.IsReady
+                IsReady = c.IsReady,
+                IsBot = c.IsBot
             })
             .ToArray();
 
@@ -161,7 +170,7 @@ private void AppendServerRpc(ulong clientId, RpcParams rpcParams = default)
 
     public Connection GetConnection(ulong id)
     {
-        return this.connections.Find(c => c.ClientId == id);
+        return this.connections.Find(c => !c.IsBot && c.ClientId == id);
     }
 
     public Connection GetConnectionByPlayerId(ulong playerId)
@@ -192,7 +201,7 @@ private void AppendServerRpc(ulong clientId, RpcParams rpcParams = default)
 
         // 重複禁止。自分がすでに持っているぶんには通す
         Connection owner = this.GetOwnerOf(index);
-        if (owner != null && owner.ClientId != senderId) return;
+        if (owner != null && owner.Id != me.Id) return;
 
         me.CharacterIndex = index;
         me.Name = CharacterDatabase.Instance.Get(index).displayName;

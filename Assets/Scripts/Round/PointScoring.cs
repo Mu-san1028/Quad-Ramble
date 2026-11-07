@@ -13,7 +13,7 @@ public class PointScoring : RoundScoring
             var status = player.GetComponent<PlayerStatus>();
             if (status == null) continue;
 
-            var connection = ConnectionContainer.Instance.GetConnection(player.OwnerClientId);
+            var connection = ConnectionContainer.Instance.GetConnectionByPlayerId(player.ParticipantId);
             connection?.AddScore(status.RoundScore);
         }
     }

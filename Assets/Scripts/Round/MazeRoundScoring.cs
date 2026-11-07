@@ -81,7 +81,7 @@ public class MazeRoundScoring : RoundScoring
             fallsByPlayer.TryGetValue(left.NetworkObjectId, out int leftFalls);
             fallsByPlayer.TryGetValue(right.NetworkObjectId, out int rightFalls);
             int comparison = leftFalls.CompareTo(rightFalls);
-            return comparison != 0 ? comparison : left.OwnerClientId.CompareTo(right.OwnerClientId);
+            return comparison != 0 ? comparison : left.ParticipantId.CompareTo(right.ParticipantId);
         });
 
         int rank = 1;
@@ -102,7 +102,7 @@ public class MazeRoundScoring : RoundScoring
             int points = GameManager.Instance.GetPointsForRank(rank);
             for (int i = firstIndex; i < nextIndex; i++)
             {
-                ConnectionContainer.Instance.GetConnection(players[i].OwnerClientId)?.AddScore(points);
+                ConnectionContainer.Instance.GetConnectionByPlayerId(players[i].ParticipantId)?.AddScore(points);
             }
 
             // 同順位に入った人数だけ次の順位番号を進めます。

@@ -252,12 +252,12 @@ public class RoundManager : NetworkBehaviour
         foreach (var player in PlayerManager.Instance.AllPlayers)
         {
             if (player == null) continue;
-            var connection = roster != null ? roster.GetConnection(player.OwnerClientId) : null;
+            var connection = roster != null ? roster.GetConnectionByPlayerId(player.ParticipantId) : null;
             if (connection == null) continue;
 
             results.Add(new RoundScoreEntry
             {
-                ClientId = connection.ClientId,
+                ParticipantId = connection.Id,
                 PlayerId = connection.Id,
                 Before = connection.Score
             });
@@ -269,7 +269,7 @@ public class RoundManager : NetworkBehaviour
         for (int i = 0; i < results.Count; i++)
         {
             var entry = results[i];
-            entry.After = roster.GetConnection(entry.ClientId)?.Score ?? entry.Before;
+            entry.After = roster.GetConnectionByPlayerId(entry.ParticipantId)?.Score ?? entry.Before;
             results[i] = entry;
         }
 
@@ -319,7 +319,7 @@ public class RoundManager : NetworkBehaviour
             int points = GameManager.Instance.GetPointsForRank(rank);
             foreach (var player in players)
             {
-                var connection = ConnectionContainer.Instance.GetConnection(player.OwnerClientId);
+                var connection = ConnectionContainer.Instance.GetConnectionByPlayerId(player.ParticipantId);
                 connection?.AddScore(points);
             }
             rank += players.Count;

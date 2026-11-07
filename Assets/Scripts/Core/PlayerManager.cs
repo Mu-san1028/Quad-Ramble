@@ -133,7 +133,7 @@ public class PlayerManager : MonoBehaviour
                     float distanceA = (a.transform.position - goalPosition).sqrMagnitude;
                     float distanceB = (b.transform.position - goalPosition).sqrMagnitude;
                     int comparison = distanceA.CompareTo(distanceB);
-                    return comparison != 0 ? comparison : a.OwnerClientId.CompareTo(b.OwnerClientId);
+                    return comparison != 0 ? comparison : a.ParticipantId.CompareTo(b.ParticipantId);
                 });
 
                 foreach (var player in unfinishedPlayers)

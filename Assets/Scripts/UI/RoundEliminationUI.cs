@@ -73,9 +73,9 @@ public sealed class RoundEliminationUI : MonoBehaviour
                 if (eliminated)
                 {
                     this.PlayEffect(i);
-                    if (player.IsOwner) this.screenRemaining = this.boomDuration + this.messageDuration;
+                    if (player.IsLocalHuman) this.screenRemaining = this.boomDuration + this.messageDuration;
                 }
-                else if (player != null && player.IsOwner)
+                else if (player != null && player.IsLocalHuman)
                 {
                     this.screenRemaining = 0f;
                 }

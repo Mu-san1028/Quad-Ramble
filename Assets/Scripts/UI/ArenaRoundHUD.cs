@@ -34,14 +34,18 @@ public sealed class ArenaRoundHUD : MonoBehaviour
         phaseText.text = round.PhaseLabel;
         phaseText.color = round.Accent;
         accentBar.color = round.Accent;
-        statusText.text = round.GetStatus(NetworkManager.Singleton.LocalClientId);
+        var local = PlayerStatus.Local;
+        statusText.text = local != null
+            ? round.GetStatus(local.GetComponent<PlayerController>().ParticipantId) : string.Empty;
         scores.Clear();
         // この端末で同期済みのプレイヤーだけを一覧に表示する。
         foreach (var networkObject in NetworkManager.Singleton.SpawnManager.SpawnedObjectsList)
         {
             if (!networkObject.TryGetComponent<PlayerStatus>(out var status)) continue;
-            var connection = ConnectionContainer.Instance?.GetConnection(networkObject.OwnerClientId);
-            string name = connection != null ? connection.Name : $"Player {networkObject.OwnerClientId + 1}";
+            var player = networkObject.GetComponent<PlayerController>();
+            if (player == null) continue;
+            var connection = ConnectionContainer.Instance?.GetConnectionByPlayerId(player.ParticipantId);
+            string name = connection != null ? connection.Name : $"Player {player.ParticipantId + 1}";
             // TMPタグをプレイヤー名に含めさせない。
             name = name.Replace("<", "＜").Replace(">", "＞");
             if (name.Length > 16) name = name.Substring(0, 16);

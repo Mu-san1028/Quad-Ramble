@@ -3,11 +3,13 @@ using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
-/// <summary>ホストがロビーで静止Botを追加・削除する。接続端末やPlayerObjectは増やさない。</summary>
+/// <summary>ホストがロビーでBot用Prefabを追加・削除する。接続端末やPlayerObjectは増やさない。</summary>
 [RequireComponent(typeof(ConnectionContainer))]
 public class BotParticipantManager : NetworkBehaviour
 {
     [SerializeField] private LobbyBotControls controlsPrefab;
+    [Tooltip("人間用Player Prefabとは別に生成する、登録済みのBot用Prefab。")]
+    [SerializeField] private GameObject botPrefab;
     [SerializeField] private string lobbySceneName = "Title";
     private readonly List<NetworkObject> bots = new();
     private LobbyBotControls controls;
@@ -15,7 +17,7 @@ public class BotParticipantManager : NetworkBehaviour
 
     public bool CanEdit => IsSpawned && IsServer && roster != null && !roster.IsTransitioning
         && roster.CurrentRound == 0 && SceneManager.GetActiveScene().name == lobbySceneName;
-    public bool CanAdd => CanEdit && roster.GetConnectionsNum() < roster.RequiredPlayerCount
+    public bool CanAdd => CanEdit && botPrefab != null && roster.GetConnectionsNum() < roster.RequiredPlayerCount
         && NetworkManager.ConnectedClientsIds.Count + roster.BotCount < roster.RequiredPlayerCount
         && FindFreeCharacter() >= 0;
     public bool CanRemove => CanEdit && bots.Count > 0;
@@ -44,8 +46,13 @@ public class BotParticipantManager : NetworkBehaviour
     public void AddBot()
     {
         if (!CanAdd) return;
-        var prefab = NetworkManager.NetworkConfig.PlayerPrefab;
-        if (prefab == null || prefab.GetComponent<PlayerIdentity>() == null) return;
+        var prefab = botPrefab;
+        if (prefab.GetComponent<PlayerIdentity>() == null || prefab.GetComponent<NetworkObject>() == null
+            || prefab.GetComponent<PlayerController>() == null)
+        {
+            Debug.LogError("[Bot] Bot PrefabにはPlayerIdentity、NetworkObject、PlayerControllerが必要です。", this);
+            return;
+        }
         var entry = roster.RegisterBot(FindFreeCharacter());
         if (entry == null) return;
 

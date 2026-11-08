@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.InputSystem;
 using System.Collections;
 using System.Collections.Generic;
@@ -12,8 +12,8 @@ using Unity.Netcode.Components;
 /// - カメラ相対移動とワールド空間絶対移動の切り替え
 /// - キャラクターが移動方向に向くように回転
 /// </summary>
-[RequireComponent(typeof(CharacterController), typeof(PlayerInput), typeof(PlayerItem))]
-[RequireComponent(typeof(HumanPlayerInput), typeof(PlayerActionInput))]
+[RequireComponent(typeof(CharacterController), typeof(PlayerItem))]
+[RequireComponent(typeof(PlayerActionInput))]
 [DefaultExecutionOrder(-200)]
 public class PlayerController : NetworkBehaviour
 {
@@ -80,6 +80,8 @@ public class PlayerController : NetworkBehaviour
         : (this.IsControllable && this.velocity.y + this.impact.y > 0.1f);
 
     /// <summary>アニメーション用の接地判定。自分とオフラインは実測、他人は同期された値</summary>
+    public float BotJumpHeight => CurrentJumpHeight;
+
     public bool IsGrounded => (IsSpawned && !IsOwner)
         ? this.networkGrounded.Value
         : (this.controller != null && this.controller.isGrounded);
@@ -159,6 +161,8 @@ public class PlayerController : NetworkBehaviour
     }
 
     public bool IsCharging => windupRoutine != null;
+    public Vector3 ProjectileOrigin => ThrowOrigin;
+    public float ProjectileLifetime => trajectoryMaxSteps * TrajectorySimulator.StepDuration;
     public float ChargeProgress { get; private set; }
     private int nextProjectileId;
 
@@ -236,8 +240,8 @@ public class PlayerController : NetworkBehaviour
         actionInput = GetComponent<PlayerActionInput>();
         this.controller = GetComponent<CharacterController>();
         // PlayerInputのOnEnableより先に止め、所有者とシーンが確定してから有効化する。
-        if (!this.allowOfflineControl)
-            GetComponent<PlayerInput>().enabled = false;
+        if (!this.allowOfflineControl && TryGetComponent<PlayerInput>(out var input))
+            input.enabled = false;
     }
 
 
@@ -251,11 +255,11 @@ public class PlayerController : NetworkBehaviour
         PlayerManager.Instance.AddPlayer(this);
         PlayerInput input = GetComponent<PlayerInput>();
 
-        if (this.IsLocalHuman && !this.IsTitleMode)
+        if (input != null && this.IsLocalHuman && !this.IsTitleMode)
         {
             this.PairInputDevice(input);
         }
-        else
+        else if (input != null)
         {
             input.enabled = false;
         }
@@ -279,11 +283,11 @@ public class PlayerController : NetworkBehaviour
             this.IsLocalHuman
             || (!this.IsSpawned && this.allowOfflineControl);
 
-        if (!enabled && canUseInput)
+        if (input != null && !enabled && canUseInput)
         {
             this.PairInputDevice(input);
         }
-        else
+        else if (input != null)
         {
             input.enabled = false;
         }
@@ -356,6 +360,9 @@ public class PlayerController : NetworkBehaviour
     /// <summary>通常席はキーボードと指定パッド、他の席は指定パッドだけを使用する。</summary>
     private void PairInputDevice(PlayerInput input)
     {
+        // BotのVariantには人間用入力コンポーネントがない。
+        if (input == null) return;
+
         var pad = LocalGamepad.Current;
         input.neverAutoSwitchControlSchemes = true;
         string scheme;
@@ -668,6 +675,15 @@ public class PlayerController : NetworkBehaviour
             return;
 
         lookInput = input;
+    }
+
+    internal void ApplyAimDirection(Vector3 direction)
+    {
+        if (!IsControllable || direction.sqrMagnitude < 0.0001f) return;
+        direction.Normalize();
+        aimYaw = Mathf.Atan2(direction.x, direction.z) * Mathf.Rad2Deg;
+        aimPitch = Mathf.Clamp(Mathf.Asin(direction.y) * Mathf.Rad2Deg, aimPitchMin, aimPitchMax);
+        ApplyAimPivot();
     }
 
     // ラウンドの開始演出・カウントダウン・結果表示中は武器を切り替えない。
@@ -1582,7 +1598,7 @@ public class PlayerController : NetworkBehaviour
                 Mathf.Max(0f, weaponData.throwSpeed * RangeMultiplier * trajectoryMaxSteps * TrajectorySimulator.StepDuration));
             Vector3 end = start + GetThrowDirection(weaponData.launchAngle) * distance;
             if (TrajectorySimulator.TryGetHit(start, end, TrajectorySettings, out var lineHit)) end = lineHit.point;
-            preview.DrawAimLine(start, end, weaponData.aimLineColor, weaponData.aimLineWidth, true);
+            preview.DrawAimLine(start, end, weaponData.aimLineColor, weaponData.aimLineWidth, !IsBot);
             if (IsSpawned && ItemDatabase.Instance != null)
                 networkAimLine.Value = new AimLineState
                 {
@@ -1593,7 +1609,7 @@ public class PlayerController : NetworkBehaviour
 
         if (IsSpawned && networkAimLine.Value.visible) networkAimLine.Value = default;
 
-        if (!isAiming || !IsControllable || weaponData == null)
+        if (IsBot || !isAiming || !IsControllable || weaponData == null)
         {
             preview.Hide();
             return;
@@ -1802,7 +1818,7 @@ public class PlayerController : NetworkBehaviour
             return AimForwardFlat * Mathf.Cos(rad) + Vector3.up * Mathf.Sin(rad);
         }
 
-        if (cameraRig.Main == null) return aimPivot.forward;
+        if (IsBot || cameraRig.Main == null) return aimPivot.forward;
 
         Vector3 dir = GetAimPoint() - ThrowOrigin;
         return dir.sqrMagnitude > 0.0001f ? dir.normalized : aimPivot.forward;

@@ -25,8 +25,17 @@ public sealed class BotItemCollector : MonoBehaviour
     private float lastProgress;
     private int placementRound = -1;
     private bool ownsDestination;
+    private bool collecting = true;
 
     public ItemBox Target => target;
+
+    public void SetCollecting(bool value)
+    {
+        if (collecting == value) return;
+        collecting = value;
+        if (!value) ReleaseTarget();
+        else nextSearch = 0f;
+    }
 
     private void Awake()
     {
@@ -37,6 +46,7 @@ public sealed class BotItemCollector : MonoBehaviour
 
     private void Update()
     {
+        if (!collecting) return;
         if (!player.IsSpawned || !player.IsServer || !player.IsBot)
         {
             ResetSearch();
@@ -68,7 +78,8 @@ public sealed class BotItemCollector : MonoBehaviour
 
         if (target != null)
         {
-            float distance = HorizontalDistance(target.PickupPosition);
+            // 穴の迂回中は直線距離が増えるため、経路の残距離で進捗を見る。
+            float distance = movement.RemainingPathDistance;
             if (distance <= bestDistance - Mathf.Max(0.01f, minimumProgress))
             {
                 bestDistance = distance;
@@ -105,7 +116,7 @@ public sealed class BotItemCollector : MonoBehaviour
             if (!box.CanBeCollected || (retryAfter.TryGetValue(box, out float until) && Time.time < until))
                 continue;
 
-            float distance = HorizontalDistance(box.PickupPosition);
+            if (!movement.CanReach(box.PickupPosition, out float distance)) continue;
             if (distance >= nearest) continue;
             target = box;
             nearest = distance;

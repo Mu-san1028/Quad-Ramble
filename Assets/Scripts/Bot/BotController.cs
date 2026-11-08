@@ -1,8 +1,10 @@
 using UnityEngine;
 
-/// <summary>サーバーで指定地点へ直進する検証用Bot。経路探索・崖回避・攻撃判断は未実装。</summary>
+/// <summary>サーバーでNavMeshの経由地点へ歩く。実際の移動は共通入力を使用する。</summary>
 [DisallowMultipleComponent]
-[RequireComponent(typeof(PlayerActionInput))]
+[RequireComponent(typeof(PlayerActionInput), typeof(BotPathNavigator))]
+[RequireComponent(typeof(BotJumpController))]
+[RequireComponent(typeof(BotEdgeAvoidance))]
 [DefaultExecutionOrder(-205)]
 public sealed class BotController : MonoBehaviour
 {
@@ -15,6 +17,16 @@ public sealed class BotController : MonoBehaviour
 
     private PlayerController player;
     private PlayerActionInput actions;
+    private BotPathNavigator navigator;
+    private BotJumpController jumper;
+    private BotEdgeAvoidance edgeAvoidance;
+    public float RemainingPathDistance => navigator != null ? navigator.RemainingDistance : float.PositiveInfinity;
+
+    public bool CanReach(Vector3 position, out float pathLength)
+    {
+        pathLength = float.PositiveInfinity;
+        return navigator != null && navigator.TryGetPathLength(position, out pathLength);
+    }
     private Vector3 destination;
     private bool hasDestination;
     private int placementRound = -1;
@@ -27,6 +39,9 @@ public sealed class BotController : MonoBehaviour
     {
         player = GetComponent<PlayerController>();
         actions = GetComponent<PlayerActionInput>();
+        navigator = GetComponent<BotPathNavigator>();
+        jumper = GetComponent<BotJumpController>();
+        edgeAvoidance = GetComponent<BotEdgeAvoidance>();
     }
 
     public void SetMoveTarget(Transform target)
@@ -48,12 +63,25 @@ public sealed class BotController : MonoBehaviour
         destinationStoppingDistance = stopDistance;
     }
 
-    public void ClearDestination()
+    public void ClearDestination(bool resetActions = true)
     {
+        // 攻撃距離に入っても、開始済みのジャンプは着地まで完了させる。
+        if (!resetActions && jumper != null && jumper.IsJumping) return;
+        if (jumper != null) jumper.Cancel();
+        if (navigator != null) navigator.ResetPath();
         moveTarget = null;
         hasDestination = false;
         destinationStoppingDistance = -1f;
-        if (IsServerBot) actions.ResetInput();
+        if (IsServerBot)
+        {
+            if (resetActions)
+            {
+                actions.ResetInput();
+                // 敵が見つからないときも、縁にいるなら退避を止めない。
+                if (isActiveAndEnabled) ApplyMoveInput(Vector3.zero);
+            }
+            else ApplyMoveInput(Vector3.zero);
+        }
     }
 
     private void Update()
@@ -81,23 +109,39 @@ public sealed class BotController : MonoBehaviour
 
         if (!player.isActiveAndEnabled || !player.IsControllable || !actions.isActiveAndEnabled)
         {
+            jumper.Cancel();
             actions.ResetInput();
             return;
         }
 
         if (moveTarget == null && !hasDestination)
         {
-            actions.SetWorldMoveInput(Vector3.zero);
+            ApplyMoveInput(Vector3.zero);
             return;
         }
 
-        Vector3 offset = (moveTarget != null ? moveTarget.position : destination) - transform.position;
-        offset.y = 0f;
-        float distance = offset.magnitude;
+        if (jumper.TryGetMoveInput(out Vector3 jumpInput))
+        {
+            ApplyMoveInput(jumpInput);
+            return;
+        }
+
         float stop = Mathf.Max(0.05f, destinationStoppingDistance >= 0f
             ? destinationStoppingDistance : stoppingDistance);
-        float amount = Mathf.Clamp01((distance - stop) / Mathf.Max(0.05f, slowdownDistance));
-        actions.SetWorldMoveInput(distance <= stop ? Vector3.zero : offset.normalized * amount);
+        Vector3 goal = moveTarget != null ? moveTarget.position : destination;
+        if (navigator.TryGetMoveInput(goal, stop, slowdownDistance, out Vector3 input))
+        {
+            input = edgeAvoidance.FilterInput(input);
+            jumper.TryStart(input, navigator.RemainingDistance);
+            actions.SetWorldMoveInput(input);
+        }
+        else
+            ApplyMoveInput(Vector3.zero);
+    }
+
+    private void ApplyMoveInput(Vector3 input)
+    {
+        actions.SetWorldMoveInput(edgeAvoidance != null ? edgeAvoidance.FilterInput(input) : input);
     }
 
     private void OnDisable()

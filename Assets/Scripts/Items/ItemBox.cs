@@ -15,6 +15,22 @@ public class ItemBox : NetworkBehaviour
     private Collider triggerCollider;
     private ItemBoxAnimation boxAnimator;
 
+    /// <summary>Botが探す候補。取得処理そのものは既存の接触判定を使う。</summary>
+    public bool CanBeCollected
+    {
+        get
+        {
+            if (!IsSpawned || !isActiveAndEnabled || !isAvailable.Value
+                || triggerCollider == null || !triggerCollider.enabled) return false;
+
+            var round = RoundManager.Instance;
+            var table = round != null ? GetItemTable(round) : null;
+            return table != null && table.Length > 0;
+        }
+    }
+
+    public Vector3 PickupPosition => triggerCollider != null ? triggerCollider.bounds.center : transform.position;
+
     protected virtual void Awake()
     {
         this.triggerCollider = GetComponent<Collider>();

@@ -15,6 +15,7 @@ public class PlayerItem : NetworkBehaviour
     private PlayerController playerController;
     private PlayerStatus playerStatus;
     public int LastWeaponsResetRound { get; private set; } = -1;
+    public bool HasEmptyWeaponSlot => FindEmptyWeaponSlot() >= 0;
 
     public ItemSlot CurrentWeapon
     {

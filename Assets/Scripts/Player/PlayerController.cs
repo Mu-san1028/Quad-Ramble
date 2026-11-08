@@ -13,6 +13,7 @@ using Unity.Netcode.Components;
 /// - キャラクターが移動方向に向くように回転
 /// </summary>
 [RequireComponent(typeof(CharacterController), typeof(PlayerInput), typeof(PlayerItem))]
+[RequireComponent(typeof(HumanPlayerInput), typeof(PlayerActionInput))]
 [DefaultExecutionOrder(-200)]
 public class PlayerController : NetworkBehaviour
 {
@@ -134,7 +135,7 @@ public class PlayerController : NetworkBehaviour
 
     private Coroutine windupRoutine;   // 溜め中のコルーチン。ラウンドをまたいで残さない
     private bool fireHeld;
-    private InputAction fireReleaseAction;
+    private PlayerActionInput actionInput;
     public event System.Action Jumped;
     public event System.Action AttackPerformed;
 
@@ -232,6 +233,7 @@ public class PlayerController : NetworkBehaviour
 
     private void Awake()
     {
+        actionInput = GetComponent<PlayerActionInput>();
         this.controller = GetComponent<CharacterController>();
         // PlayerInputのOnEnableより先に止め、所有者とシーンが確定してから有効化する。
         if (!this.allowOfflineControl)
@@ -269,6 +271,7 @@ public class PlayerController : NetworkBehaviour
             return;
 
         this.IsTitleMode = enabled;
+        actionInput.ResetInput();
 
         PlayerInput input = GetComponent<PlayerInput>();
 
@@ -307,6 +310,7 @@ public class PlayerController : NetworkBehaviour
 
     public override void OnNetworkDespawn()
     {
+        actionInput.ResetInput();
         CancelCharge();
         this.preview?.Hide();
         this.ClearSpectating(false);
@@ -321,11 +325,7 @@ public class PlayerController : NetworkBehaviour
     }
     void OnDisable()
     {
-        if (fireReleaseAction != null)
-        {
-            fireReleaseAction.canceled -= HandleFireReleased;
-            fireReleaseAction = null;
-        }
+        if (actionInput != null) actionInput.ResetInput();
         CancelCharge();
         fireHeld = false;
         this.preview?.Hide();
@@ -435,6 +435,7 @@ public class PlayerController : NetworkBehaviour
     {
         if (hidden)
         {
+            actionInput.ResetInput();
             this.isAiming = false;
             this.moveInput = this.lookInput = Vector2.zero;
             this.velocity = this.impact = Vector3.zero;
@@ -495,6 +496,7 @@ public class PlayerController : NetworkBehaviour
 
         if (!movable)
         {
+            actionInput.ResetInput();
             moveInput = Vector2.zero;
             lookInput = Vector2.zero;
             velocity = Vector3.zero;
@@ -564,6 +566,7 @@ public class PlayerController : NetworkBehaviour
 
     private void ResetFacing(Quaternion rotation)
     {
+        actionInput.ResetInput();
         aimYaw = rotation.eulerAngles.y;
         aimPitch = 0f;
         isAiming = false;
@@ -591,14 +594,25 @@ public class PlayerController : NetworkBehaviour
     }
     #endregion
 
-    #region 入力イベント
-    void OnJump(InputValue value)
+    #region 操作の適用
+    internal bool CanReceiveHumanInput => isActiveAndEnabled && !IsBot
+        && (IsLocalHuman || (!IsSpawned && allowOfflineControl));
+
+    internal void ResetActionInput()
+    {
+        moveInput = lookInput = Vector2.zero;
+        isAiming = false;
+        fireHeld = false;
+        CancelCharge();
+    }
+
+    internal void ApplyJumpInput(bool pressed)
     {
         if (!this.IsControllable)
             return;
 
         // ボタンが押されたら
-        if (value.isPressed)
+        if (pressed)
         {
             // 地面にいればジャンプ
             if (controller != null && controller.enabled && controller.isGrounded
@@ -618,28 +632,42 @@ public class PlayerController : NetworkBehaviour
         }
     }
 
-    void OnMove(InputValue value)
+    internal void ApplyMoveInput(Vector2 input)
     {
         if (!this.IsControllable)
             return;
 
-        moveInput = value.Get<Vector2>();
+        moveInput = input;
     }
 
-    void OnAim(InputValue value)
+    internal void ApplyAimInput(bool pressed)
     {
         if (!this.IsControllable)
             return;
 
-        isAiming = value.isPressed;
+        isAiming = pressed;
     }
 
-    void OnLook(InputValue value)
+    internal void ApplyWorldMoveInput(Vector3 input)
+    {
+        if (!IsControllable) return;
+
+        if (input.sqrMagnitude > 0.0001f)
+            aimYaw = Mathf.Atan2(input.x, input.z) * Mathf.Rad2Deg;
+
+        // 既存のカメラ相対/絶対移動の両方へ、同じワールド方向を渡す。
+        Vector3 local = CurrentMoveMode == MoveMode.CameraRelative
+            ? Quaternion.Inverse(Quaternion.Euler(0f, aimYaw, 0f)) * input
+            : input;
+        ApplyMoveInput(new Vector2(local.x, local.z));
+    }
+
+    internal void ApplyLookInput(Vector2 input)
     {
         if (!this.IsControllable)
             return;
 
-        lookInput = value.Get<Vector2>();
+        lookInput = input;
     }
 
     // ラウンドの開始演出・カウントダウン・結果表示中は武器を切り替えない。
@@ -654,47 +682,37 @@ public class PlayerController : NetworkBehaviour
         }
     }
 
-    void OnNextWeapon(InputValue value)
+    internal void ApplyNextWeaponInput(bool pressed)
     {
-        if (value.isPressed && this.TrySwitchSpectator(1)) return;
+        if (pressed && this.TrySwitchSpectator(1)) return;
 
         if (!this.CanSwitchWeapon)
             return;
 
-        if (value.isPressed)
+        if (pressed)
         {
             this.CancelCharge();
             this.playerItem.SwitchWeapon(1);
         }
     }
 
-    void OnPreviousWeapon(InputValue value)
+    internal void ApplyPreviousWeaponInput(bool pressed)
     {
-        if (value.isPressed && this.TrySwitchSpectator(-1)) return;
+        if (pressed && this.TrySwitchSpectator(-1)) return;
 
         if (!this.CanSwitchWeapon)
             return;
 
-        if (value.isPressed)
+        if (pressed)
         {
             this.CancelCharge();
             this.playerItem.SwitchWeapon(-1);
         }
     }
 
-    void OnFire(InputValue value)
+    internal void ApplyFireInput(bool pressed)
     {
-        // SendMessagesではButton型のcanceledが届かないため、解除だけ直接購読する。
-        // 実際に入力された時点の、PlayerInputが所有するActionインスタンスを使う。
-        InputAction action = GetComponent<PlayerInput>().actions.FindAction("Fire", false);
-        if (fireReleaseAction != action)
-        {
-            if (fireReleaseAction != null) fireReleaseAction.canceled -= HandleFireReleased;
-            fireReleaseAction = action;
-            if (fireReleaseAction != null) fireReleaseAction.canceled += HandleFireReleased;
-        }
-
-        if (!value.isPressed)
+        if (!pressed)
         {
             fireHeld = false;
             CancelCharge();
@@ -716,12 +734,6 @@ public class PlayerController : NetworkBehaviour
         }
         else
             CompleteAttack(slot, weapon);
-    }
-
-    private void HandleFireReleased(InputAction.CallbackContext context)
-    {
-        fireHeld = false;
-        CancelCharge();
     }
 
     private void CancelCharge()

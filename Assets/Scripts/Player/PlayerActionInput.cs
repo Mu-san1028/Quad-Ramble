@@ -62,6 +62,14 @@ public sealed class PlayerActionInput : MonoBehaviour
         player.ApplyAimInput(held);
     }
 
+    public void SetAimDirection(Vector3 direction)
+    {
+        if (!CanAct || direction.sqrMagnitude < 0.0001f) return;
+        LookInput = Vector2.zero;
+        player.ApplyLookInput(Vector2.zero);
+        player.ApplyAimDirection(direction);
+    }
+
     /// <summary>ジャンプは蓄積せず、その時点の接地状態で判定する。</summary>
     public void RequestJump(bool pressed = true)
     {

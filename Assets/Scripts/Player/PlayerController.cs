@@ -1474,6 +1474,13 @@ public class PlayerController : NetworkBehaviour
             // プレイヤーの場合は既存の疲労・ノックバック処理を使う。
             this.ApplyKnockback(targetId, direction, power);
         }
+        else if (target.TryGetComponent<EnemyHealth>(out var enemyHealth))
+        {
+            // 敵のHP・撃破者・ノックバックはサーバー側の敵コンポーネントへ渡す。
+            enemyHealth.TakeDamage(power, this.ParticipantId);
+            target.GetComponent<EnemyKnockback>()?.AddForce(direction.normalized * power
+                + Vector3.up * power * 0.3f);
+        }
         else
         {
             // このRPCはプレイヤーとBomb用。ほかの種類のNetworkObjectには何もしない。
@@ -1739,15 +1746,27 @@ public class PlayerController : NetworkBehaviour
             if (!hitIds.Add(target.NetworkObjectId)) continue;
 
             var victim = target.GetComponent<PlayerController>();
-            if (victim == null) continue;
-
-            hitPlayer = true;
-
-            if (reductionEffect != null)
-                reductionEffect.Apply(target.GetComponent<PlayerStatus>());
-
             Vector3 direction = (target.transform.position - center).normalized;
-            this.ApplyKnockback(target.NetworkObjectId, direction, power, CriticalHitRegion.IsCritical(victim, center));
+            if (victim != null)
+            {
+                hitPlayer = true;
+
+                if (reductionEffect != null)
+                    reductionEffect.Apply(target.GetComponent<PlayerStatus>());
+
+                this.ApplyKnockback(target.NetworkObjectId, direction, power,
+                    CriticalHitRegion.IsCritical(victim, center));
+                continue;
+            }
+
+            // 爆発にも敵HP対応を加え、同じ武器威力で敵を攻撃できるようにする。
+            var enemy = target.GetComponent<EnemyHealth>();
+            if (enemy != null)
+            {
+                enemy.TakeDamage(power, this.ParticipantId);
+                target.GetComponent<EnemyKnockback>()?.AddForce(direction * power
+                    + Vector3.up * power * 0.3f);
+            }
         }
 
         // 時間切れでは無音。衝突時は敵への命中、または非命中SE設定に従う。
@@ -1771,6 +1790,22 @@ public class PlayerController : NetworkBehaviour
         if (!this.IsControllable) return;
         Debug.Log($"[TakeKnockback] impact適用前: {impact}, 追加するforce: {force}");
         impact += force;
+    }
+
+    /// <summary>サーバー上の敵AIから呼び出し、プレイヤーの疲労と吹き飛びを適用する。</summary>
+    public void ApplyEnemyHitServer(float fatiguePower, Vector3 force)
+    {
+        if (IsSpawned && !IsServer) return;
+        if (this.IsEliminated) return;
+
+        // 現在のプレイヤー仕様では疲労が被ダメージ相当の蓄積値です。
+        this.status ??= GetComponent<PlayerStatus>();
+        this.status?.AddFatigue(fatiguePower);
+
+        if (IsSpawned)
+            ApplyKnockbackClientRpc(NetworkObjectId, force);
+        else
+            TakeKnockback(force);
     }
 
     void OnDrawGizmosSelected()
